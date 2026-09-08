@@ -1,0 +1,14 @@
+{
+  "name": "aei-quest-osc-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "receiver": "node osc-receiver.mjs"
+  },
+  "dependencies": {
+    "osc": "^2.4.5",
+    "ws": "^8.18.3"
+  }
+}
