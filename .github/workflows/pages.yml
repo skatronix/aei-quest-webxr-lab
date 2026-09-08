@@ -1,4 +1,4 @@
-name: Deploy Bubble Test 01 preview to GitHub Pages
+name: Deploy WebXR demo to GitHub Pages
 
 on:
   push:
@@ -18,10 +18,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Bubble Test 01
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: bubble-test-01
 
       - name: Setup Node
         uses: actions/setup-node@v4
