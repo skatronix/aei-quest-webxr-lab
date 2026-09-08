@@ -21,11 +21,11 @@ body { min-width: 320px; overflow: hidden; }
 }
 
 .panel {
-  width: min(680px, 100%);
+  width: min(760px, 100%);
   padding: 28px;
   border: 1px solid rgba(255,255,255,.16);
   border-radius: 18px;
-  background: rgba(10,10,10,.86);
+  background: rgba(10,10,10,.88);
   backdrop-filter: blur(16px);
   pointer-events: auto;
 }
@@ -37,10 +37,24 @@ body { min-width: 320px; overflow: hidden; }
   opacity: .62;
 }
 
-h1 { margin: 0 0 12px; font-size: clamp(2rem, 8vw, 4.6rem); line-height: .94; }
+h1 { margin: 0 0 12px; font-size: clamp(2rem, 8vw, 4.2rem); line-height: .94; }
 p { line-height: 1.55; }
-.status { margin: 22px 0 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.actions { display: flex; gap: 12px; flex-wrap: wrap; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.status { margin: 14px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+
+.field { display: grid; gap: 7px; margin-top: 20px; font-size: .85rem; opacity: .92; }
+.field span { font-weight: 700; letter-spacing: .04em; }
+input {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 12px;
+  padding: 13px 14px;
+  background: rgba(255,255,255,.06);
+  color: inherit;
+  font: 15px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 button {
   appearance: none;
   border: 1px solid rgba(255,255,255,.2);
