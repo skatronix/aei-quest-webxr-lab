@@ -11,252 +11,338 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 
+const VR_BACKGROUND = new THREE.Color(0xf2f1ec);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
+scene.background = VR_BACKGROUND.clone();
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
-camera.position.set(0, 1.6, 2.4);
+camera.position.set(0, 1.6, 3.2);
 
-const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(4, 64),
-  new THREE.MeshBasicMaterial({ color: 0x050505, transparent: true, opacity: 0.86 })
-);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = 0;
-scene.add(floor);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 2.6));
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
+keyLight.position.set(2.5, 4.5, 3.2);
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0xffffff, 1.2);
+fillLight.position.set(-3.0, 2.2, -1.4);
+scene.add(fillLight);
 
 // ---------------------------------------------------------------------------
-// Bubble Test 01.2 — layered translucent visual field
-// Visual direction: warm, overlapping, semi-transparent organic membranes.
-// Interaction model is inherited from 01.1: gentle push/deform, direct impact pop.
+// Orbital Node Test 01 — interactive correction
+// - layered 3D nodes with visible origins
+// - local self-spin + hierarchical 3D orbital motion
+// - origin-to-origin links update dynamically
+// - Quest hands use index-finger-tip positions
+// - controllers use target-ray origins, matching the Bubble Test input path
+// - slow contact pushes / bends a node branch and a spring returns it to orbit
 // ---------------------------------------------------------------------------
 
-const FIELD_COUNT = 26;
-const INPUT_RADIUS = 0.075;
-const POP_IMPACT_SPEED = 0.95;
-const POP_DURATION = 0.24;
-const DEFORM_DECAY = 5.6;
-
-const BOUNDS = {
-  minX: -1.70,
-  maxX: 1.70,
-  minY: 0.42,
-  maxY: 2.42,
-  minZ: -2.75,
-  maxZ: -0.28,
+const COLORS = {
+  blue: 0x3d72b8,
+  red: 0xef3340,
+  yellow: 0xfdbd32,
+  cream: 0xf1ddb2,
+  white: 0xf8f7f2,
+  black: 0x090909,
 };
 
 const PALETTE = [
-  0xfff4cc,
-  0xffe94f,
-  0xffbe2f,
-  0xff8a24,
-  0xf35328,
-  0xd92f25,
-  0xf4e9e4,
-  0xb9ad35,
-  0x8f7866,
+  COLORS.blue,
+  COLORS.red,
+  COLORS.yellow,
+  COLORS.cream,
+  COLORS.white,
 ];
 
-const fields = [];
-let poppedCount = 0;
-let contactCount = 0;
-let frameImpactSpeed = 0;
-let displayedImpactSpeed = 0;
-let fpsSmoothed = 72;
+const INPUT_RADIUS = 0.070;
+const NODE_SPRING = 11.0;
+const NODE_DAMPING = 6.8;
+const ANGULAR_DAMPING = 5.2;
+const MAX_INTERACTION_OFFSET = 0.24;
+
+const nodes = [];
+const orbitLinks = [];
+
+let seedState = 0xAE120126;
+function random01() {
+  seedState |= 0;
+  seedState = (seedState + 0x6D2B79F5) | 0;
+  let t = seedState;
+  t = Math.imul(t ^ (t >>> 15), 1 | t);
+  t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
 function randomRange(min, max) {
-  return min + Math.random() * (max - min);
+  return min + random01() * (max - min);
 }
 
 function randomItem(items) {
-  return items[Math.floor(Math.random() * items.length)];
+  return items[Math.floor(random01() * items.length)];
 }
 
-function seededWave(seed, value) {
-  return Math.sin(value * (2.0 + (seed % 5) * 0.37) + seed * 1.731);
+function contrastingColor(color) {
+  const options = PALETTE.filter((candidate) => candidate !== color);
+  return randomItem(options);
 }
 
-function makeBlobGeometry(seed) {
-  const points = [];
-  const count = 15;
-  const phase = seed * 0.83;
+const sphereGeometry = new THREE.SphereGeometry(1, 24, 16);
+const smallSphereGeometry = new THREE.SphereGeometry(1, 16, 12);
+const axisGeometry = new THREE.CylinderGeometry(1, 1, 2.4, 8);
+const spinRingGeometry = new THREE.TorusGeometry(1, 0.018, 6, 52);
+const orbitRingGeometry = new THREE.TorusGeometry(1, 0.006, 4, 72);
 
-  for (let i = 0; i < count; i += 1) {
-    const a = (i / count) * Math.PI * 2;
-    const radial =
-      0.78 +
-      seededWave(seed, a + phase) * 0.16 +
-      Math.sin(a * 3.0 + phase * 1.7) * 0.10;
+const blackMaterial = new THREE.MeshBasicMaterial({ color: COLORS.black });
 
-    points.push(new THREE.Vector2(
-      Math.cos(a) * radial,
-      Math.sin(a) * radial * (0.72 + (seed % 4) * 0.07)
-    ));
-  }
-
-  const shape = new THREE.Shape(points);
-  const geometry = new THREE.ShapeGeometry(shape, 1);
-  geometry.center();
-  return geometry;
-}
-
-function makeShardGeometry(seed) {
-  const length = 0.95 + (seed % 4) * 0.18;
-  const width = 0.07 + (seed % 3) * 0.035;
-  const shape = new THREE.Shape([
-    new THREE.Vector2(-length, -width),
-    new THREE.Vector2(length * 0.92, 0),
-    new THREE.Vector2(-length * 0.28, width * 1.35),
-  ]);
-  const geometry = new THREE.ShapeGeometry(shape, 1);
-  geometry.center();
-  return geometry;
-}
-
-const blobGeometries = Array.from({ length: 6 }, (_, i) => makeBlobGeometry(i + 1));
-const shardGeometries = Array.from({ length: 3 }, (_, i) => makeShardGeometry(i + 11));
-
-function makeMembraneMaterial(color, opacity) {
-  return new THREE.MeshBasicMaterial({
+function makeShellMaterial(color, opacity) {
+  return new THREE.MeshPhysicalMaterial({
     color,
     transparent: true,
     opacity,
+    roughness: 0.28,
+    metalness: 0.0,
+    clearcoat: 0.38,
+    clearcoatRoughness: 0.22,
     side: THREE.DoubleSide,
     depthWrite: false,
-    depthTest: true,
-    blending: THREE.NormalBlending,
   });
 }
 
-function makeLayer(isShard = false) {
-  const geometry = isShard ? randomItem(shardGeometries) : randomItem(blobGeometries);
-  const baseOpacity = isShard ? randomRange(0.12, 0.24) : randomRange(0.10, 0.23);
-  const material = makeMembraneMaterial(randomItem(PALETTE), baseOpacity);
-  const mesh = new THREE.Mesh(geometry, material);
-
-  const baseScale = new THREE.Vector3(
-    isShard ? randomRange(0.35, 0.68) : randomRange(0.42, 0.88),
-    isShard ? randomRange(0.18, 0.38) : randomRange(0.32, 0.78),
-    1
-  );
-
-  mesh.scale.copy(baseScale);
-  mesh.rotation.z = randomRange(-Math.PI, Math.PI);
-  mesh.position.set(
-    randomRange(-0.12, 0.12),
-    randomRange(-0.10, 0.10),
-    randomRange(-0.05, 0.05)
-  );
-
-  return {
-    mesh,
-    baseScale,
-    baseOpacity,
-    spin: randomRange(-0.15, 0.15),
-    wobble: randomRange(0.35, 0.95),
-    phase: randomRange(0, Math.PI * 2),
-  };
+function makeCoreMaterial(color) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.62,
+    metalness: 0.0,
+  });
 }
 
-function recolorField(field) {
-  for (const layer of field.layers) {
-    layer.mesh.material.color.setHex(randomItem(PALETTE));
-    layer.baseOpacity = randomRange(0.10, layer.isShard ? 0.24 : 0.23);
-    layer.mesh.material.opacity = layer.baseOpacity;
-  }
+function makeLineMaterial(opacity = 0.6) {
+  return new THREE.MeshBasicMaterial({
+    color: COLORS.black,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+  });
 }
 
-function resetField(field, initial = false) {
-  field.radius = randomRange(0.22, 0.42);
-  field.phase = randomRange(0, Math.PI * 2);
-  field.popping = false;
-  field.popAge = 0;
-  field.respawnTimer = 0;
-  field.deform = 0;
-  field.root.visible = true;
-  field.root.scale.setScalar(1);
+function createNode(radius, depth, style = {}) {
+  const root = new THREE.Group();
+  const interactionGroup = new THREE.Group();
+  const visualMount = new THREE.Group();
+  const spinGroup = new THREE.Group();
 
-  field.root.position.set(
-    randomRange(BOUNDS.minX, BOUNDS.maxX),
-    randomRange(BOUNDS.minY, BOUNDS.maxY),
-    randomRange(BOUNDS.minZ, BOUNDS.maxZ)
-  );
+  root.add(interactionGroup);
+  interactionGroup.add(visualMount);
+  visualMount.add(spinGroup);
 
-  if (!initial) {
-    field.root.position.y = BOUNDS.minY + randomRange(0.0, 0.45);
-    recolorField(field);
-  }
-
-  field.root.rotation.set(
-    randomRange(-0.52, 0.52),
-    randomRange(-0.62, 0.62),
+  visualMount.rotation.set(
+    randomRange(-0.95, 0.95),
+    randomRange(-0.95, 0.95),
     randomRange(-Math.PI, Math.PI)
   );
 
-  field.velocity.set(
-    randomRange(-0.055, 0.055),
-    randomRange(0.018, 0.065),
-    randomRange(-0.045, 0.045)
+  const outerColor = style.outerColor ?? randomItem(PALETTE);
+  const innerColor = style.innerColor ?? contrastingColor(outerColor);
+  const shellOpacity = style.shellOpacity ?? randomRange(0.22, 0.42);
+
+  const outer = new THREE.Mesh(
+    sphereGeometry,
+    makeShellMaterial(outerColor, shellOpacity)
   );
+  outer.scale.setScalar(radius);
+  spinGroup.add(outer);
 
-  field.angularVelocity.set(
-    randomRange(-0.12, 0.12),
-    randomRange(-0.12, 0.12),
-    randomRange(-0.18, 0.18)
+  const inner = new THREE.Mesh(
+    sphereGeometry,
+    makeCoreMaterial(innerColor)
   );
+  inner.scale.setScalar(radius * randomRange(0.38, 0.52));
+  spinGroup.add(inner);
 
-  for (const layer of field.layers) {
-    layer.mesh.visible = true;
-    layer.mesh.material.opacity = layer.baseOpacity;
-    layer.mesh.scale.copy(layer.baseScale);
-  }
-}
+  const origin = new THREE.Mesh(smallSphereGeometry, blackMaterial);
+  origin.scale.setScalar(radius * 0.12);
+  spinGroup.add(origin);
 
-function createField() {
-  const root = new THREE.Group();
-  const layers = [];
+  const axis = new THREE.Mesh(axisGeometry, makeLineMaterial(0.72));
+  axis.scale.set(radius * 0.018, radius, radius * 0.018);
+  visualMount.add(axis);
 
-  const layerCount = Math.random() < 0.52 ? 3 : 4;
-  for (let i = 0; i < layerCount; i += 1) {
-    const isShard = i === layerCount - 1 && Math.random() < 0.68;
-    const layer = makeLayer(isShard);
-    layer.isShard = isShard;
-    root.add(layer.mesh);
-    layers.push(layer);
-  }
+  const ringA = new THREE.Mesh(spinRingGeometry, makeLineMaterial(0.45));
+  ringA.scale.setScalar(radius * 1.015);
+  spinGroup.add(ringA);
 
-  const field = {
+  const ringB = new THREE.Mesh(spinRingGeometry, makeLineMaterial(0.28));
+  ringB.scale.setScalar(radius * 1.015);
+  ringB.rotation.x = Math.PI / 2;
+  spinGroup.add(ringB);
+
+  const marker = new THREE.Mesh(
+    smallSphereGeometry,
+    makeCoreMaterial(contrastingColor(outerColor))
+  );
+  marker.scale.setScalar(radius * 0.075);
+  marker.position.set(radius * 0.63, radius * 0.34, radius * 0.58);
+  spinGroup.add(marker);
+
+  const depthMultiplier = 1 + depth * 0.22;
+  const spinSpeed =
+    (random01() < 0.5 ? -1 : 1) *
+    randomRange(0.20, 0.52) *
+    depthMultiplier;
+
+  const node = {
     root,
-    layers,
-    velocity: new THREE.Vector3(),
+    interactionGroup,
+    spinGroup,
+    radius,
+    depth,
+    spinSpeed,
+    outerColor,
+    innerColor,
+    interactionVelocity: new THREE.Vector3(),
     angularVelocity: new THREE.Vector3(),
-    radius: 0.3,
-    phase: 0,
-    deform: 0,
-    popping: false,
-    popAge: 0,
-    respawnTimer: 0,
+    worldPosition: new THREE.Vector3(),
   };
 
-  scene.add(root);
-  resetField(field, true);
-  fields.push(field);
+  nodes.push(node);
+  return node;
 }
 
-for (let i = 0; i < FIELD_COUNT; i += 1) createField();
+function addOrbit(parent, child, options) {
+  const {
+    radius,
+    speed,
+    phase = 0,
+    tiltX = 0,
+    tiltY = 0,
+    tiltZ = 0,
+    ringOpacity = 0.20,
+  } = options;
 
-function popField(field) {
-  if (field.popping || !field.root.visible) return;
-  field.popping = true;
-  field.popAge = 0;
-  field.velocity.multiplyScalar(0.30);
-  field.angularVelocity.multiplyScalar(2.4);
-  poppedCount += 1;
+  const orbitPlane = new THREE.Group();
+  orbitPlane.rotation.set(tiltX, tiltY, tiltZ);
+
+  const rotor = new THREE.Group();
+  rotor.rotation.z = phase;
+
+  const ring = new THREE.Mesh(orbitRingGeometry, makeLineMaterial(ringOpacity));
+  ring.scale.setScalar(radius);
+  orbitPlane.add(ring);
+
+  child.root.position.set(radius, 0, 0);
+  rotor.add(child.root);
+  orbitPlane.add(rotor);
+  parent.interactionGroup.add(orbitPlane);
+
+  const connectorGeometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(),
+    new THREE.Vector3(),
+  ]);
+  const connector = new THREE.Line(
+    connectorGeometry,
+    new THREE.LineBasicMaterial({
+      color: COLORS.black,
+      transparent: true,
+      opacity: 0.76,
+      depthWrite: false,
+    })
+  );
+  scene.add(connector);
+
+  orbitLinks.push({
+    orbitPlane,
+    rotor,
+    parent,
+    child,
+    connector,
+    orbitSpeed: speed,
+  });
 }
 
-// --- XR input ---------------------------------------------------------------
+const systemRoot = new THREE.Group();
+systemRoot.position.set(0, 1.43, -1.78);
+scene.add(systemRoot);
+
+function buildNetwork() {
+  const center = createNode(0.30, 0, {
+    outerColor: COLORS.white,
+    innerColor: COLORS.blue,
+    shellOpacity: 0.16,
+  });
+  systemRoot.add(center.root);
+
+  const primaryCount = 6;
+
+  for (let i = 0; i < primaryCount; i += 1) {
+    const primaryOuter = PALETTE[i % PALETTE.length];
+    const primary = createNode(randomRange(0.145, 0.215), 1, {
+      outerColor: primaryOuter,
+      innerColor: contrastingColor(primaryOuter),
+      shellOpacity: randomRange(0.26, 0.44),
+    });
+
+    const primaryPhase =
+      (i / primaryCount) * Math.PI * 2 + randomRange(-0.20, 0.20);
+
+    addOrbit(center, primary, {
+      radius: randomRange(0.62, 0.91),
+      speed: (i % 2 === 0 ? 1 : -1) * randomRange(0.085, 0.17),
+      phase: primaryPhase,
+      tiltX: randomRange(-0.78, 0.78),
+      tiltY: randomRange(-0.78, 0.78),
+      tiltZ: randomRange(-0.26, 0.26),
+      ringOpacity: 0.20,
+    });
+
+    const satelliteCount = 2 + Math.floor(random01() * 3);
+
+    for (let j = 0; j < satelliteCount; j += 1) {
+      const satellite = createNode(randomRange(0.072, 0.118), 2);
+
+      addOrbit(primary, satellite, {
+        radius: randomRange(0.25, 0.43),
+        speed:
+          (j % 2 === 0 ? 1 : -1) *
+          randomRange(0.18, 0.36),
+        phase:
+          (j / satelliteCount) * Math.PI * 2 +
+          randomRange(-0.35, 0.35),
+        tiltX: randomRange(-1.05, 1.05),
+        tiltY: randomRange(-1.05, 1.05),
+        tiltZ: randomRange(-0.45, 0.45),
+        ringOpacity: 0.17,
+      });
+
+      const grandchildCount =
+        random01() < 0.58 ? 1 + (random01() < 0.30 ? 1 : 0) : 0;
+
+      for (let k = 0; k < grandchildCount; k += 1) {
+        const grandchild = createNode(randomRange(0.044, 0.072), 3);
+
+        addOrbit(satellite, grandchild, {
+          radius: randomRange(0.145, 0.245),
+          speed:
+            (k % 2 === 0 ? 1 : -1) *
+            randomRange(0.31, 0.56),
+          phase:
+            (k / Math.max(grandchildCount, 1)) * Math.PI * 2 +
+            randomRange(-0.8, 0.8),
+          tiltX: randomRange(-1.2, 1.2),
+          tiltY: randomRange(-1.2, 1.2),
+          tiltZ: randomRange(-0.65, 0.65),
+          ringOpacity: 0.13,
+        });
+      }
+    }
+  }
+}
+
+buildNetwork();
+
+// --- XR spatial input -------------------------------------------------------
 
 const controllerState = [
   { connected: false, handedness: '—', hand: false },
@@ -273,26 +359,34 @@ const inputSpeed = [0, 0];
 const inputHasPrevious = [false, false];
 
 const rawVelocity = new THREE.Vector3();
-const contactNormal = new THREE.Vector3();
+const contactNormalWorld = new THREE.Vector3();
+const localNormal = new THREE.Vector3();
+const localVelocity = new THREE.Vector3();
+const rootWorldQuaternion = new THREE.Quaternion();
+const inverseRootQuaternion = new THREE.Quaternion();
+const torque = new THREE.Vector3();
+const springVector = new THREE.Vector3();
+const linkStart = new THREE.Vector3();
+const linkEnd = new THREE.Vector3();
 
-let currentMode = 'screen';
-let session = null;
-let lastHudUpdate = 0;
-let lastFrameTime = 0;
-const headPos = new THREE.Vector3();
+let contactCount = 0;
+let frameImpactSpeed = 0;
+let displayedImpactSpeed = 0;
 
 function makeInput(index) {
   const controller = renderer.xr.getController(index);
 
   const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.028, 12, 10),
+    new THREE.SphereGeometry(0.034, 16, 12),
     new THREE.MeshBasicMaterial({
-      color: index === 0 ? 0xfff27d : 0xff7a54,
+      color: index === 0 ? 0x3d72b8 : 0xef3340,
       transparent: true,
-      opacity: 0.74,
+      opacity: 0.86,
+      depthTest: false,
     })
   );
   marker.visible = false;
+  marker.renderOrder = 200;
   scene.add(marker);
 
   const ray = new THREE.Line(
@@ -300,9 +394,13 @@ function makeInput(index) {
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, 0, -1),
     ]),
-    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22 })
+    new THREE.LineBasicMaterial({
+      color: COLORS.black,
+      transparent: true,
+      opacity: 0.34,
+    })
   );
-  ray.scale.z = 1.25;
+  ray.scale.z = 1.15;
   controller.add(ray);
 
   controller.addEventListener('connected', (event) => {
@@ -319,6 +417,7 @@ function makeInput(index) {
   controller.addEventListener('disconnected', () => {
     controllerState[index] = { connected: false, handedness: '—', hand: false };
     marker.visible = false;
+    ray.visible = false;
     inputSpeed[index] = 0;
     inputVelocity[index].set(0, 0, 0);
     inputHasPrevious[index] = false;
@@ -332,6 +431,9 @@ function makeInput(index) {
 
 makeInput(0);
 makeInput(1);
+
+let currentMode = 'screen';
+let session = null;
 
 function getHandTipPosition(index, frame, target) {
   if (!frame || !session || !controllerState[index].hand) return false;
@@ -371,10 +473,11 @@ function updateInputKinematics(dt, frame) {
 
     inputMarkers[i].visible = true;
     inputMarkers[i].position.copy(inputPos[i]);
+    inputRays[i].visible = !controllerState[i].hand;
 
     if (inputHasPrevious[i] && dt > 0.0001) {
       rawVelocity.copy(inputPos[i]).sub(previousInputPos[i]).multiplyScalar(1 / dt);
-      const blend = THREE.MathUtils.clamp(dt * 12.0, 0, 1);
+      const blend = THREE.MathUtils.clamp(dt * 13.0, 0, 1);
       inputVelocity[i].lerp(rawVelocity, blend);
       inputSpeed[i] = inputVelocity[i].length();
     } else {
@@ -387,176 +490,138 @@ function updateInputKinematics(dt, frame) {
   }
 }
 
-function interactWithField(field) {
-  if (field.popping || !field.root.visible) return;
+function interactWithNodes(dt) {
+  frameImpactSpeed = 0;
 
-  for (let i = 0; i < inputs.length; i += 1) {
-    if (!controllerState[i].connected) continue;
+  for (const node of nodes) {
+    node.interactionGroup.getWorldPosition(node.worldPosition);
 
-    const hitDistance = field.root.position.distanceTo(inputPos[i]);
-    const contactDistance = field.radius + INPUT_RADIUS;
-    if (hitDistance >= contactDistance) continue;
+    for (let i = 0; i < inputs.length; i += 1) {
+      if (!controllerState[i].connected) continue;
 
-    contactCount += 1;
+      const distance = node.worldPosition.distanceTo(inputPos[i]);
+      const contactDistance = node.radius + INPUT_RADIUS;
+      if (distance >= contactDistance) continue;
 
-    contactNormal.copy(field.root.position).sub(inputPos[i]);
-    if (contactNormal.lengthSq() < 0.000001) contactNormal.set(0, 0, 1);
-    else contactNormal.normalize();
+      contactCount += 1;
 
-    const impactSpeed = Math.max(0, inputVelocity[i].dot(contactNormal));
-    frameImpactSpeed = Math.max(frameImpactSpeed, impactSpeed);
+      contactNormalWorld.copy(node.worldPosition).sub(inputPos[i]);
+      if (contactNormalWorld.lengthSq() < 0.000001) {
+        contactNormalWorld.set(0, 0, 1);
+      } else {
+        contactNormalWorld.normalize();
+      }
 
-    const penetration = contactDistance - hitDistance;
-    const penetrationRatio = THREE.MathUtils.clamp(penetration / contactDistance, 0, 1);
-    const deformation = THREE.MathUtils.clamp(
-      impactSpeed * 0.24 + penetrationRatio * 0.42,
-      0,
-      0.46
-    );
+      const impactSpeed = Math.max(0, inputVelocity[i].dot(contactNormalWorld));
+      frameImpactSpeed = Math.max(frameImpactSpeed, impactSpeed);
 
-    field.deform = Math.max(field.deform, deformation);
+      node.root.getWorldQuaternion(rootWorldQuaternion);
+      inverseRootQuaternion.copy(rootWorldQuaternion).invert();
 
-    if (impactSpeed >= POP_IMPACT_SPEED) {
-      popField(field);
-      return;
+      localNormal.copy(contactNormalWorld).applyQuaternion(inverseRootQuaternion);
+      localVelocity.copy(inputVelocity[i]).applyQuaternion(inverseRootQuaternion);
+
+      const penetration = contactDistance - distance;
+      const penetrationRatio = THREE.MathUtils.clamp(
+        penetration / Math.max(contactDistance, 0.001),
+        0,
+        1
+      );
+
+      // Bubble-like touch response: carry hand/controller motion into the node,
+      // separate the surfaces, then let the branch elastically return to orbit.
+      node.interactionVelocity.addScaledVector(localVelocity, 0.18);
+      node.interactionVelocity.addScaledVector(
+        localNormal,
+        0.18 + penetrationRatio * 0.34 + impactSpeed * 0.10
+      );
+      node.interactionVelocity.clampLength(0, 0.95);
+
+      node.interactionGroup.position.addScaledVector(
+        localNormal,
+        penetration * 0.34
+      );
+
+      torque.copy(localNormal).cross(localVelocity).multiplyScalar(0.16);
+      node.angularVelocity.add(torque);
+      node.angularVelocity.clampLength(0, 2.2);
     }
-
-    field.velocity.addScaledVector(inputVelocity[i], 0.24);
-    field.velocity.addScaledVector(contactNormal, 0.040 + penetrationRatio * 0.040);
-    field.velocity.clampLength(0, 0.62);
-
-    field.angularVelocity.x += inputVelocity[i].y * 0.028;
-    field.angularVelocity.y -= inputVelocity[i].x * 0.028;
-    field.angularVelocity.z += (inputVelocity[i].x - inputVelocity[i].y) * 0.018;
-
-    field.root.position.addScaledVector(contactNormal, penetration * 0.66);
   }
-}
 
-function updateFieldVisual(field, dt, seconds) {
-  const deform = field.deform;
-  const pulse = 1 + deform * 0.18;
-  field.root.scale.set(
-    pulse,
-    1 - deform * 0.13,
-    1 + deform * 0.11
+  displayedImpactSpeed = THREE.MathUtils.lerp(
+    displayedImpactSpeed,
+    frameImpactSpeed,
+    THREE.MathUtils.clamp(dt * 10.0, 0, 1)
   );
-
-  for (let i = 0; i < field.layers.length; i += 1) {
-    const layer = field.layers[i];
-    const wobble = Math.sin(seconds * layer.wobble + layer.phase + field.phase) * 0.055;
-    const breathe = 1 + Math.sin(seconds * 0.58 + layer.phase) * 0.035;
-
-    layer.mesh.rotation.z += layer.spin * dt;
-    layer.mesh.rotation.x = wobble * 0.45;
-    layer.mesh.rotation.y = Math.cos(seconds * 0.43 + layer.phase) * 0.08;
-    layer.mesh.scale.set(
-      layer.baseScale.x * breathe * (1 + deform * (0.16 + i * 0.025)),
-      layer.baseScale.y * (2 - breathe) * (1 - deform * 0.08),
-      1
-    );
-  }
-
-  field.deform *= Math.exp(-DEFORM_DECAY * dt);
 }
 
-function updateFields(dt, time) {
-  const seconds = time * 0.001;
+function updateNodeInteraction(node, dt) {
+  springVector.copy(node.interactionGroup.position).multiplyScalar(-NODE_SPRING * dt);
+  node.interactionVelocity.add(springVector);
+  node.interactionVelocity.multiplyScalar(Math.exp(-NODE_DAMPING * dt));
+  node.interactionGroup.position.addScaledVector(node.interactionVelocity, dt);
 
-  for (const field of fields) {
-    if (!field.root.visible) {
-      field.respawnTimer -= dt;
-      if (field.respawnTimer <= 0) resetField(field, false);
-      continue;
-    }
+  if (node.interactionGroup.position.length() > MAX_INTERACTION_OFFSET) {
+    node.interactionGroup.position.setLength(MAX_INTERACTION_OFFSET);
+  }
 
-    if (field.popping) {
-      field.popAge += dt;
-      const t = THREE.MathUtils.clamp(field.popAge / POP_DURATION, 0, 1);
-      const pulse = 1 + Math.sin(t * Math.PI) * 0.42 + t * 0.30;
-      field.root.scale.setScalar(pulse);
+  node.interactionGroup.rotation.x += node.angularVelocity.x * dt;
+  node.interactionGroup.rotation.y += node.angularVelocity.y * dt;
+  node.interactionGroup.rotation.z += node.angularVelocity.z * dt;
 
-      for (let i = 0; i < field.layers.length; i += 1) {
-        const layer = field.layers[i];
-        layer.mesh.material.opacity = layer.baseOpacity * (1 - t);
-        layer.mesh.rotation.z += (0.9 + i * 0.35) * dt;
-        layer.mesh.position.x += Math.cos(layer.phase) * 0.16 * dt;
-        layer.mesh.position.y += Math.sin(layer.phase) * 0.16 * dt;
-      }
+  const angularDecay = Math.exp(-ANGULAR_DAMPING * dt);
+  node.angularVelocity.multiplyScalar(angularDecay);
 
-      if (t >= 1) {
-        field.popping = false;
-        field.root.visible = false;
-        field.respawnTimer = randomRange(0.55, 1.25);
-      }
-      continue;
-    }
+  const rotationReturn = Math.exp(-3.6 * dt);
+  node.interactionGroup.rotation.x *= rotationReturn;
+  node.interactionGroup.rotation.y *= rotationReturn;
+  node.interactionGroup.rotation.z *= rotationReturn;
+}
 
-    field.velocity.x += Math.sin(seconds * 0.44 + field.phase) * 0.0038 * dt;
-    field.velocity.z += Math.cos(seconds * 0.37 + field.phase * 1.7) * 0.0032 * dt;
-    field.velocity.y += 0.0048 * dt;
+function updateDynamicConnectors() {
+  for (const link of orbitLinks) {
+    link.parent.interactionGroup.getWorldPosition(linkStart);
+    link.child.interactionGroup.getWorldPosition(linkEnd);
 
-    const drag = Math.exp(-0.38 * dt);
-    field.velocity.multiplyScalar(drag);
-    field.root.position.addScaledVector(field.velocity, dt);
-
-    field.root.rotation.x += field.angularVelocity.x * dt;
-    field.root.rotation.y += field.angularVelocity.y * dt;
-    field.root.rotation.z += field.angularVelocity.z * dt;
-    field.angularVelocity.multiplyScalar(Math.exp(-0.50 * dt));
-
-    interactWithField(field);
-    updateFieldVisual(field, dt, seconds);
-
-    const r = field.radius * 0.52;
-
-    if (field.root.position.x < BOUNDS.minX - r) {
-      field.root.position.x = BOUNDS.maxX + r;
-    } else if (field.root.position.x > BOUNDS.maxX + r) {
-      field.root.position.x = BOUNDS.minX - r;
-    }
-
-    if (field.root.position.z < BOUNDS.minZ - r) {
-      field.root.position.z = BOUNDS.maxZ + r;
-    } else if (field.root.position.z > BOUNDS.maxZ + r) {
-      field.root.position.z = BOUNDS.minZ - r;
-    }
-
-    if (field.root.position.y > BOUNDS.maxY + r) {
-      field.root.position.y = BOUNDS.minY - r;
-      field.root.position.x = randomRange(BOUNDS.minX, BOUNDS.maxX);
-      field.root.position.z = randomRange(BOUNDS.minZ, BOUNDS.maxZ);
-      field.velocity.y = randomRange(0.02, 0.065);
-    }
+    const position = link.connector.geometry.attributes.position;
+    position.setXYZ(0, linkStart.x, linkStart.y, linkStart.z);
+    position.setXYZ(1, linkEnd.x, linkEnd.y, linkEnd.z);
+    position.needsUpdate = true;
   }
 }
 
 // --- Diagnostic HUD ---------------------------------------------------------
 
 const hudCanvas = document.createElement('canvas');
-hudCanvas.width = 1024;
+hudCanvas.width = 940;
 hudCanvas.height = 520;
 const hudCtx = hudCanvas.getContext('2d');
 const hudTexture = new THREE.CanvasTexture(hudCanvas);
 hudTexture.colorSpace = THREE.SRGBColorSpace;
 
 const hud = new THREE.Mesh(
-  new THREE.PlaneGeometry(1.28, 0.65),
-  new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true, depthTest: false })
+  new THREE.PlaneGeometry(1.30, 0.72),
+  new THREE.MeshBasicMaterial({
+    map: hudTexture,
+    transparent: true,
+    depthTest: false,
+  })
 );
-hud.position.set(0, 1.82, -2.64);
+hud.position.set(-1.23, 2.12, -2.55);
 hud.renderOrder = 100;
 scene.add(hud);
+
+let lastFrameTime = 0;
+let lastHudUpdate = 0;
+let fpsSmoothed = 72;
 
 function drawHud(time) {
   if (time - lastHudUpdate < 120) return;
   lastHudUpdate = time;
 
-  const xrCamera = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
-  xrCamera.getWorldPosition(headPos);
-
   let handCount = 0;
   let controllerCount = 0;
+
   if (session) {
     for (const source of session.inputSources) {
       if (source.hand) handCount += 1;
@@ -564,32 +629,33 @@ function drawHud(time) {
     }
   }
 
-  const alive = fields.filter((field) => field.root.visible).length;
-
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.fillStyle = 'rgba(0,0,0,.64)';
+  hudCtx.fillStyle = 'rgba(248,247,242,.92)';
   hudCtx.fillRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.strokeStyle = 'rgba(255,217,91,.46)';
-  hudCtx.lineWidth = 3;
+  hudCtx.strokeStyle = 'rgba(9,9,9,.80)';
+  hudCtx.lineWidth = 4;
   hudCtx.strokeRect(2, 2, hudCanvas.width - 4, hudCanvas.height - 4);
 
-  hudCtx.fillStyle = '#fff4ca';
-  hudCtx.font = '700 34px system-ui, sans-serif';
-  hudCtx.fillText('AEI QUEST — BUBBLE TEST 01.2', 40, 58);
+  hudCtx.fillStyle = '#090909';
+  hudCtx.font = '700 38px system-ui, sans-serif';
+  hudCtx.fillText('AEI QUEST — ORBITAL NODE TEST 01', 38, 58);
 
-  hudCtx.fillStyle = '#ffffff';
-  hudCtx.font = '23px ui-monospace, monospace';
+  hudCtx.font = '24px ui-monospace, monospace';
   const lines = [
-    `mode: ${currentMode}   XR: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen'}   fps: ${fpsSmoothed.toFixed(0)}`,
+    `mode: ${currentMode}   XR: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen'}`,
+    `nodes: ${nodes.length}   origin links: ${orbitLinks.length}`,
     `controllers: ${controllerCount}   hands: ${handCount}`,
     `input 0 ${controllerState[0].handedness}: ${inputSpeed[0].toFixed(2)} m/s`,
     `input 1 ${controllerState[1].handedness}: ${inputSpeed[1].toFixed(2)} m/s`,
-    `impact: ${displayedImpactSpeed.toFixed(2)} m/s   pop: ${POP_IMPACT_SPEED.toFixed(2)} m/s`,
-    `field: ${alive}/${FIELD_COUNT}   popped: ${poppedCount}   contacts: ${contactCount}`,
-    `slow touch = bend / carry   direct fast poke = pop`,
+    `contacts: ${contactCount}   impact: ${displayedImpactSpeed.toFixed(2)} m/s`,
+    `touch interaction: PUSH + ELASTIC RETURN`,
+    `fps: ${fpsSmoothed.toFixed(1)}`,
   ];
 
-  lines.forEach((line, i) => hudCtx.fillText(line, 40, 112 + i * 50));
+  lines.forEach((line, index) => {
+    hudCtx.fillText(line, 38, 112 + index * 47);
+  });
+
   hudTexture.needsUpdate = true;
 }
 
@@ -599,30 +665,34 @@ async function startXR(mode) {
   if (!navigator.xr || session) return;
 
   const isAR = mode === 'immersive-ar';
-  const init = {
-    requiredFeatures: ['local-floor'],
-    optionalFeatures: ['bounded-floor', 'hand-tracking'],
-  };
 
   try {
-    session = await navigator.xr.requestSession(mode, init);
+    session = await navigator.xr.requestSession(mode, {
+      requiredFeatures: ['local-floor'],
+      optionalFeatures: ['bounded-floor', 'hand-tracking'],
+    });
+
     currentMode = isAR ? 'MR / AR' : 'VR';
     document.body.classList.add('xr-active');
-    scene.background = isAR ? null : new THREE.Color(0x000000);
-    floor.visible = !isAR;
+    scene.background = isAR ? null : VR_BACKGROUND.clone();
+
     await renderer.xr.setSession(session);
 
     inputHasPrevious.fill(false);
     inputSpeed.fill(0);
 
-    session.addEventListener('end', () => {
-      session = null;
-      currentMode = 'screen';
-      document.body.classList.remove('xr-active');
-      scene.background = new THREE.Color(0x000000);
-      floor.visible = true;
-      inputHasPrevious.fill(false);
-    }, { once: true });
+    session.addEventListener(
+      'end',
+      () => {
+        session = null;
+        currentMode = 'screen';
+        document.body.classList.remove('xr-active');
+        scene.background = VR_BACKGROUND.clone();
+        inputHasPrevious.fill(false);
+        inputSpeed.fill(0);
+      },
+      { once: true }
+    );
   } catch (error) {
     console.error(error);
     supportEl.textContent = `Could not start ${mode}: ${error.message}`;
@@ -634,38 +704,56 @@ arButton.addEventListener('click', () => startXR('immersive-ar'));
 
 async function detectSupport() {
   if (!navigator.xr) {
-    supportEl.textContent = 'WebXR API not available in this browser/context. Use HTTPS in Quest Browser.';
+    supportEl.textContent =
+      'WebXR API not available in this browser/context. Use HTTPS in Quest Browser.';
     return;
   }
 
-  const [vr, ar] = await Promise.all([
+  const [vrSupported, arSupported] = await Promise.all([
     navigator.xr.isSessionSupported('immersive-vr').catch(() => false),
     navigator.xr.isSessionSupported('immersive-ar').catch(() => false),
   ]);
 
-  vrButton.disabled = !vr;
-  arButton.disabled = !ar;
-  supportEl.textContent = `WebXR: VR ${vr ? 'YES' : 'NO'} / MR-AR ${ar ? 'YES' : 'NO'}`;
+  vrButton.disabled = !vrSupported;
+  arButton.disabled = !arSupported;
+
+  supportEl.textContent =
+    `WebXR: VR ${vrSupported ? 'YES' : 'NO'} / ` +
+    `MR-AR ${arSupported ? 'YES' : 'NO'}`;
 }
 
 renderer.setAnimationLoop((time, frame) => {
-  const dt = lastFrameTime > 0
-    ? THREE.MathUtils.clamp((time - lastFrameTime) / 1000, 0.001, 0.035)
-    : 1 / 72;
+  const dt =
+    lastFrameTime > 0
+      ? THREE.MathUtils.clamp((time - lastFrameTime) / 1000, 0.001, 0.04)
+      : 1 / 72;
   lastFrameTime = time;
 
-  const instantFps = 1 / dt;
-  fpsSmoothed = THREE.MathUtils.lerp(fpsSmoothed, instantFps, 0.055);
-
-  frameImpactSpeed = 0;
-  updateInputKinematics(dt, frame);
-  updateFields(dt, time);
-  displayedImpactSpeed = THREE.MathUtils.lerp(
-    displayedImpactSpeed,
-    frameImpactSpeed,
-    frameImpactSpeed > displayedImpactSpeed ? 0.42 : 0.10
+  const instantaneousFps = 1 / Math.max(dt, 0.001);
+  fpsSmoothed = THREE.MathUtils.lerp(
+    fpsSmoothed,
+    instantaneousFps,
+    THREE.MathUtils.clamp(dt * 3.2, 0, 1)
   );
 
+  updateInputKinematics(dt, frame);
+  interactWithNodes(dt);
+
+  for (const node of nodes) {
+    node.spinGroup.rotation.y += node.spinSpeed * dt;
+    updateNodeInteraction(node, dt);
+  }
+
+  for (const link of orbitLinks) {
+    link.rotor.rotation.z += link.orbitSpeed * dt;
+  }
+
+  const seconds = time * 0.001;
+  systemRoot.rotation.y += dt * 0.020;
+  systemRoot.rotation.x = Math.sin(seconds * 0.11) * 0.045;
+  systemRoot.rotation.z = Math.sin(seconds * 0.075) * 0.025;
+
+  updateDynamicConnectors();
   drawHud(time);
   renderer.render(scene, camera);
 });
