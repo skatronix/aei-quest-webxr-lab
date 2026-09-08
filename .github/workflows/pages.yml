@@ -2,7 +2,7 @@ name: Deploy WebXR demo to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, bubble-test-01]
   workflow_dispatch:
 
 permissions:
