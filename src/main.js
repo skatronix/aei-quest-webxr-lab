@@ -31,13 +31,13 @@ fillLight.position.set(-3.0, 2.2, -1.4);
 scene.add(fillLight);
 
 // ---------------------------------------------------------------------------
-// Orbital Node Test 01
-// 3D interpretation of the supplied circular-node reference:
-// - every node is a layered 3D sphere with a visible origin
-// - nodes spin around their own axes
-// - child nodes orbit a parent origin through tilted 3D orbit planes
-// - connectors always run origin-to-origin
-// - hierarchy: central -> primary -> satellite -> optional grandchild
+// Orbital Node Test 01 — interactive correction
+// - layered 3D nodes with visible origins
+// - local self-spin + hierarchical 3D orbital motion
+// - origin-to-origin links update dynamically
+// - Quest hands use index-finger-tip positions
+// - controllers use target-ray origins, matching the Bubble Test input path
+// - slow contact pushes / bends a node branch and a spring returns it to orbit
 // ---------------------------------------------------------------------------
 
 const COLORS = {
@@ -56,6 +56,12 @@ const PALETTE = [
   COLORS.cream,
   COLORS.white,
 ];
+
+const INPUT_RADIUS = 0.070;
+const NODE_SPRING = 11.0;
+const NODE_DAMPING = 6.8;
+const ANGULAR_DAMPING = 5.2;
+const MAX_INTERACTION_OFFSET = 0.24;
 
 const nodes = [];
 const orbitLinks = [];
@@ -86,7 +92,6 @@ function contrastingColor(color) {
 const sphereGeometry = new THREE.SphereGeometry(1, 24, 16);
 const smallSphereGeometry = new THREE.SphereGeometry(1, 16, 12);
 const axisGeometry = new THREE.CylinderGeometry(1, 1, 2.4, 8);
-const connectorGeometry = new THREE.CylinderGeometry(1, 1, 1, 8);
 const spinRingGeometry = new THREE.TorusGeometry(1, 0.018, 6, 52);
 const orbitRingGeometry = new THREE.TorusGeometry(1, 0.006, 4, 72);
 
@@ -125,10 +130,12 @@ function makeLineMaterial(opacity = 0.6) {
 
 function createNode(radius, depth, style = {}) {
   const root = new THREE.Group();
+  const interactionGroup = new THREE.Group();
   const visualMount = new THREE.Group();
   const spinGroup = new THREE.Group();
 
-  root.add(visualMount);
+  root.add(interactionGroup);
+  interactionGroup.add(visualMount);
   visualMount.add(spinGroup);
 
   visualMount.rotation.set(
@@ -188,12 +195,16 @@ function createNode(radius, depth, style = {}) {
 
   const node = {
     root,
+    interactionGroup,
     spinGroup,
     radius,
     depth,
     spinSpeed,
     outerColor,
     innerColor,
+    interactionVelocity: new THREE.Vector3(),
+    angularVelocity: new THREE.Vector3(),
+    worldPosition: new THREE.Vector3(),
   };
 
   nodes.push(node);
@@ -221,23 +232,32 @@ function addOrbit(parent, child, options) {
   ring.scale.setScalar(radius);
   orbitPlane.add(ring);
 
-  const connector = new THREE.Mesh(connectorGeometry, makeLineMaterial(0.78));
-  connector.position.x = radius * 0.5;
-  connector.rotation.z = -Math.PI / 2;
-  connector.scale.set(0.006, radius, 0.006);
-  rotor.add(connector);
-
   child.root.position.set(radius, 0, 0);
   rotor.add(child.root);
-
   orbitPlane.add(rotor);
-  parent.root.add(orbitPlane);
+  parent.interactionGroup.add(orbitPlane);
+
+  const connectorGeometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(),
+    new THREE.Vector3(),
+  ]);
+  const connector = new THREE.Line(
+    connectorGeometry,
+    new THREE.LineBasicMaterial({
+      color: COLORS.black,
+      transparent: true,
+      opacity: 0.76,
+      depthWrite: false,
+    })
+  );
+  scene.add(connector);
 
   orbitLinks.push({
     orbitPlane,
     rotor,
     parent,
     child,
+    connector,
     orbitSpeed: speed,
   });
 }
@@ -322,29 +342,275 @@ function buildNetwork() {
 
 buildNetwork();
 
+// --- XR spatial input -------------------------------------------------------
+
+const controllerState = [
+  { connected: false, handedness: '—', hand: false },
+  { connected: false, handedness: '—', hand: false },
+];
+
+const inputs = [];
+const inputMarkers = [];
+const inputRays = [];
+const inputPos = [new THREE.Vector3(), new THREE.Vector3()];
+const previousInputPos = [new THREE.Vector3(), new THREE.Vector3()];
+const inputVelocity = [new THREE.Vector3(), new THREE.Vector3()];
+const inputSpeed = [0, 0];
+const inputHasPrevious = [false, false];
+
+const rawVelocity = new THREE.Vector3();
+const contactNormalWorld = new THREE.Vector3();
+const localNormal = new THREE.Vector3();
+const localVelocity = new THREE.Vector3();
+const rootWorldQuaternion = new THREE.Quaternion();
+const inverseRootQuaternion = new THREE.Quaternion();
+const torque = new THREE.Vector3();
+const springVector = new THREE.Vector3();
+const linkStart = new THREE.Vector3();
+const linkEnd = new THREE.Vector3();
+
+let contactCount = 0;
+let frameImpactSpeed = 0;
+let displayedImpactSpeed = 0;
+
+function makeInput(index) {
+  const controller = renderer.xr.getController(index);
+
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.034, 16, 12),
+    new THREE.MeshBasicMaterial({
+      color: index === 0 ? 0x3d72b8 : 0xef3340,
+      transparent: true,
+      opacity: 0.86,
+      depthTest: false,
+    })
+  );
+  marker.visible = false;
+  marker.renderOrder = 200;
+  scene.add(marker);
+
+  const ray = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -1),
+    ]),
+    new THREE.LineBasicMaterial({
+      color: COLORS.black,
+      transparent: true,
+      opacity: 0.34,
+    })
+  );
+  ray.scale.z = 1.15;
+  controller.add(ray);
+
+  controller.addEventListener('connected', (event) => {
+    controllerState[index] = {
+      connected: true,
+      handedness: event.data?.handedness || 'unknown',
+      hand: Boolean(event.data?.hand),
+    };
+    ray.visible = !controllerState[index].hand;
+    marker.visible = true;
+    inputHasPrevious[index] = false;
+  });
+
+  controller.addEventListener('disconnected', () => {
+    controllerState[index] = { connected: false, handedness: '—', hand: false };
+    marker.visible = false;
+    ray.visible = false;
+    inputSpeed[index] = 0;
+    inputVelocity[index].set(0, 0, 0);
+    inputHasPrevious[index] = false;
+  });
+
+  scene.add(controller);
+  inputs.push(controller);
+  inputMarkers.push(marker);
+  inputRays.push(ray);
+}
+
+makeInput(0);
+makeInput(1);
+
+let currentMode = 'screen';
+let session = null;
+
+function getHandTipPosition(index, frame, target) {
+  if (!frame || !session || !controllerState[index].hand) return false;
+
+  const refSpace = renderer.xr.getReferenceSpace();
+  if (!refSpace) return false;
+
+  const handedness = controllerState[index].handedness;
+  const source = Array.from(session.inputSources).find(
+    (item) => item.hand && item.handedness === handedness
+  );
+  if (!source?.hand) return false;
+
+  const joint = source.hand.get('index-finger-tip');
+  if (!joint) return false;
+
+  const pose = frame.getJointPose(joint, refSpace);
+  if (!pose) return false;
+
+  target.set(
+    pose.transform.position.x,
+    pose.transform.position.y,
+    pose.transform.position.z
+  );
+  return true;
+}
+
+function updateInputKinematics(dt, frame) {
+  for (let i = 0; i < inputs.length; i += 1) {
+    if (!controllerState[i].connected) {
+      inputMarkers[i].visible = false;
+      continue;
+    }
+
+    const gotHandTip = getHandTipPosition(i, frame, inputPos[i]);
+    if (!gotHandTip) inputs[i].getWorldPosition(inputPos[i]);
+
+    inputMarkers[i].visible = true;
+    inputMarkers[i].position.copy(inputPos[i]);
+    inputRays[i].visible = !controllerState[i].hand;
+
+    if (inputHasPrevious[i] && dt > 0.0001) {
+      rawVelocity.copy(inputPos[i]).sub(previousInputPos[i]).multiplyScalar(1 / dt);
+      const blend = THREE.MathUtils.clamp(dt * 13.0, 0, 1);
+      inputVelocity[i].lerp(rawVelocity, blend);
+      inputSpeed[i] = inputVelocity[i].length();
+    } else {
+      inputVelocity[i].set(0, 0, 0);
+      inputSpeed[i] = 0;
+      inputHasPrevious[i] = true;
+    }
+
+    previousInputPos[i].copy(inputPos[i]);
+  }
+}
+
+function interactWithNodes(dt) {
+  frameImpactSpeed = 0;
+
+  for (const node of nodes) {
+    node.interactionGroup.getWorldPosition(node.worldPosition);
+
+    for (let i = 0; i < inputs.length; i += 1) {
+      if (!controllerState[i].connected) continue;
+
+      const distance = node.worldPosition.distanceTo(inputPos[i]);
+      const contactDistance = node.radius + INPUT_RADIUS;
+      if (distance >= contactDistance) continue;
+
+      contactCount += 1;
+
+      contactNormalWorld.copy(node.worldPosition).sub(inputPos[i]);
+      if (contactNormalWorld.lengthSq() < 0.000001) {
+        contactNormalWorld.set(0, 0, 1);
+      } else {
+        contactNormalWorld.normalize();
+      }
+
+      const impactSpeed = Math.max(0, inputVelocity[i].dot(contactNormalWorld));
+      frameImpactSpeed = Math.max(frameImpactSpeed, impactSpeed);
+
+      node.root.getWorldQuaternion(rootWorldQuaternion);
+      inverseRootQuaternion.copy(rootWorldQuaternion).invert();
+
+      localNormal.copy(contactNormalWorld).applyQuaternion(inverseRootQuaternion);
+      localVelocity.copy(inputVelocity[i]).applyQuaternion(inverseRootQuaternion);
+
+      const penetration = contactDistance - distance;
+      const penetrationRatio = THREE.MathUtils.clamp(
+        penetration / Math.max(contactDistance, 0.001),
+        0,
+        1
+      );
+
+      // Bubble-like touch response: carry hand/controller motion into the node,
+      // separate the surfaces, then let the branch elastically return to orbit.
+      node.interactionVelocity.addScaledVector(localVelocity, 0.18);
+      node.interactionVelocity.addScaledVector(
+        localNormal,
+        0.18 + penetrationRatio * 0.34 + impactSpeed * 0.10
+      );
+      node.interactionVelocity.clampLength(0, 0.95);
+
+      node.interactionGroup.position.addScaledVector(
+        localNormal,
+        penetration * 0.34
+      );
+
+      torque.copy(localNormal).cross(localVelocity).multiplyScalar(0.16);
+      node.angularVelocity.add(torque);
+      node.angularVelocity.clampLength(0, 2.2);
+    }
+  }
+
+  displayedImpactSpeed = THREE.MathUtils.lerp(
+    displayedImpactSpeed,
+    frameImpactSpeed,
+    THREE.MathUtils.clamp(dt * 10.0, 0, 1)
+  );
+}
+
+function updateNodeInteraction(node, dt) {
+  springVector.copy(node.interactionGroup.position).multiplyScalar(-NODE_SPRING * dt);
+  node.interactionVelocity.add(springVector);
+  node.interactionVelocity.multiplyScalar(Math.exp(-NODE_DAMPING * dt));
+  node.interactionGroup.position.addScaledVector(node.interactionVelocity, dt);
+
+  if (node.interactionGroup.position.length() > MAX_INTERACTION_OFFSET) {
+    node.interactionGroup.position.setLength(MAX_INTERACTION_OFFSET);
+  }
+
+  node.interactionGroup.rotation.x += node.angularVelocity.x * dt;
+  node.interactionGroup.rotation.y += node.angularVelocity.y * dt;
+  node.interactionGroup.rotation.z += node.angularVelocity.z * dt;
+
+  const angularDecay = Math.exp(-ANGULAR_DAMPING * dt);
+  node.angularVelocity.multiplyScalar(angularDecay);
+
+  const rotationReturn = Math.exp(-3.6 * dt);
+  node.interactionGroup.rotation.x *= rotationReturn;
+  node.interactionGroup.rotation.y *= rotationReturn;
+  node.interactionGroup.rotation.z *= rotationReturn;
+}
+
+function updateDynamicConnectors() {
+  for (const link of orbitLinks) {
+    link.parent.interactionGroup.getWorldPosition(linkStart);
+    link.child.interactionGroup.getWorldPosition(linkEnd);
+
+    const position = link.connector.geometry.attributes.position;
+    position.setXYZ(0, linkStart.x, linkStart.y, linkStart.z);
+    position.setXYZ(1, linkEnd.x, linkEnd.y, linkEnd.z);
+    position.needsUpdate = true;
+  }
+}
+
 // --- Diagnostic HUD ---------------------------------------------------------
 
 const hudCanvas = document.createElement('canvas');
-hudCanvas.width = 900;
-hudCanvas.height = 410;
+hudCanvas.width = 940;
+hudCanvas.height = 520;
 const hudCtx = hudCanvas.getContext('2d');
 const hudTexture = new THREE.CanvasTexture(hudCanvas);
 hudTexture.colorSpace = THREE.SRGBColorSpace;
 
 const hud = new THREE.Mesh(
-  new THREE.PlaneGeometry(1.28, 0.58),
+  new THREE.PlaneGeometry(1.30, 0.72),
   new THREE.MeshBasicMaterial({
     map: hudTexture,
     transparent: true,
     depthTest: false,
   })
 );
-hud.position.set(-1.23, 2.18, -2.55);
+hud.position.set(-1.23, 2.12, -2.55);
 hud.renderOrder = 100;
 scene.add(hud);
 
-let currentMode = 'screen';
-let session = null;
 let lastFrameTime = 0;
 let lastHudUpdate = 0;
 let fpsSmoothed = 72;
@@ -378,13 +644,16 @@ function drawHud(time) {
   const lines = [
     `mode: ${currentMode}   XR: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen'}`,
     `nodes: ${nodes.length}   origin links: ${orbitLinks.length}`,
-    `self spin: ON   3D orbital hierarchy: ON`,
     `controllers: ${controllerCount}   hands: ${handCount}`,
+    `input 0 ${controllerState[0].handedness}: ${inputSpeed[0].toFixed(2)} m/s`,
+    `input 1 ${controllerState[1].handedness}: ${inputSpeed[1].toFixed(2)} m/s`,
+    `contacts: ${contactCount}   impact: ${displayedImpactSpeed.toFixed(2)} m/s`,
+    `touch interaction: PUSH + ELASTIC RETURN`,
     `fps: ${fpsSmoothed.toFixed(1)}`,
   ];
 
   lines.forEach((line, index) => {
-    hudCtx.fillText(line, 38, 112 + index * 50);
+    hudCtx.fillText(line, 38, 112 + index * 47);
   });
 
   hudTexture.needsUpdate = true;
@@ -409,6 +678,9 @@ async function startXR(mode) {
 
     await renderer.xr.setSession(session);
 
+    inputHasPrevious.fill(false);
+    inputSpeed.fill(0);
+
     session.addEventListener(
       'end',
       () => {
@@ -416,6 +688,8 @@ async function startXR(mode) {
         currentMode = 'screen';
         document.body.classList.remove('xr-active');
         scene.background = VR_BACKGROUND.clone();
+        inputHasPrevious.fill(false);
+        inputSpeed.fill(0);
       },
       { once: true }
     );
@@ -448,7 +722,7 @@ async function detectSupport() {
     `MR-AR ${arSupported ? 'YES' : 'NO'}`;
 }
 
-renderer.setAnimationLoop((time) => {
+renderer.setAnimationLoop((time, frame) => {
   const dt =
     lastFrameTime > 0
       ? THREE.MathUtils.clamp((time - lastFrameTime) / 1000, 0.001, 0.04)
@@ -462,8 +736,12 @@ renderer.setAnimationLoop((time) => {
     THREE.MathUtils.clamp(dt * 3.2, 0, 1)
   );
 
+  updateInputKinematics(dt, frame);
+  interactWithNodes(dt);
+
   for (const node of nodes) {
     node.spinGroup.rotation.y += node.spinSpeed * dt;
+    updateNodeInteraction(node, dt);
   }
 
   for (const link of orbitLinks) {
@@ -475,6 +753,7 @@ renderer.setAnimationLoop((time) => {
   systemRoot.rotation.x = Math.sin(seconds * 0.11) * 0.045;
   systemRoot.rotation.z = Math.sin(seconds * 0.075) * 0.025;
 
+  updateDynamicConnectors();
   drawHud(time);
   renderer.render(scene, camera);
 });
