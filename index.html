@@ -6,20 +6,20 @@
     <meta name="theme-color" content="#f2f1ec" />
     <meta
       name="description"
-      content="AEI Quest WebXR Lab — interactive Orbital Node Test 01 for Meta Quest 2."
+      content="AEI Quest WebXR Lab — Orbital Node Test 01.1 with direct Quest hand/controller input and bubble-like response."
     />
-    <title>AEI Quest WebXR Lab — Orbital Node Test 01</title>
+    <title>AEI Quest WebXR Lab — Orbital Node Test 01.1</title>
   </head>
   <body>
     <main id="app">
       <section class="panel">
         <p class="eyebrow">AEI XR / MR LAB</p>
-        <h1>Orbital Node Test 01</h1>
+        <h1>Orbital Node Test 01.1</h1>
         <p>
-          A hierarchical 3D node system based on the supplied circular reference:
-          layered spheres rotate around their own axes while child nodes orbit their
-          parent origins through tilted 3D planes. Every branch remains connected
-          origin-to-origin.
+          Hierarchical 3D orbital nodes with direct Quest input. Hands are read from
+          index-finger-tip joint poses and controllers from target-ray poses on every
+          XR frame. Slow contact pushes and squashes the node branch; a fast direct
+          impact produces the bubble-style pop response.
         </p>
 
         <div id="support" class="status">Checking WebXR support…</div>
@@ -30,7 +30,7 @@
         </div>
 
         <p class="hint">
-          Quest 2: hands and controllers now use the Bubble Test spatial-input path. Touch a node to push and bend its branch; it returns elastically to its orbital position.
+          Quest 2: first confirm that the HUD shows LEFT/RIGHT as hand or controller and that the two input markers follow you. Then touch, push and poke the spheres.
         </p>
       </section>
     </main>
