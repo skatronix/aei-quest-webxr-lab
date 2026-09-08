@@ -35,35 +35,60 @@ const cube = new THREE.Mesh(
   new THREE.BoxGeometry(0.32, 0.32, 0.32),
   new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.28, metalness: 0.18 })
 );
-cube.position.set(0, 1.55, -1.2);
+cube.position.set(0, 1.45, -0.8);
 scene.add(cube);
+
+// Continuous spatial-control visual: input distance drives this ring.
+const distanceRing = new THREE.Mesh(
+  new THREE.TorusGeometry(0.22, 0.025, 16, 96),
+  new THREE.MeshStandardMaterial({ color: 0xbdbdbd, roughness: 0.4, metalness: 0.2 })
+);
+distanceRing.position.set(0, 1.05, -1.0);
+scene.add(distanceRing);
 
 // World-space diagnostic panel, visible inside XR.
 const hudCanvas = document.createElement('canvas');
 hudCanvas.width = 1024;
-hudCanvas.height = 512;
+hudCanvas.height = 640;
 const hudCtx = hudCanvas.getContext('2d');
 const hudTexture = new THREE.CanvasTexture(hudCanvas);
 hudTexture.colorSpace = THREE.SRGBColorSpace;
 const hud = new THREE.Mesh(
-  new THREE.PlaneGeometry(1.35, 0.675),
+  new THREE.PlaneGeometry(1.45, 0.9),
   new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true })
 );
-hud.position.set(0, 1.55, -1.85);
+hud.position.set(0, 1.7, -1.9);
 scene.add(hud);
 
 const controllerState = [
   { connected: false, handedness: '—', hand: false },
   { connected: false, handedness: '—', hand: false },
 ];
+
+const inputs = [];
+const inputPos = [new THREE.Vector3(), new THREE.Vector3()];
+const cubeWorldPos = new THREE.Vector3();
+const raycaster = new THREE.Raycaster();
+const tempMatrix = new THREE.Matrix4();
+const tempDirection = new THREE.Vector3();
+
 let selectCount = 0;
 let currentMode = 'screen';
 let session = null;
 let lastHudUpdate = 0;
+let grabbedBy = -1;
+let inputDistance = 0;
 const headPos = new THREE.Vector3();
 
 function makeController(index) {
   const controller = renderer.xr.getController(index);
+
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.035, 24, 16),
+    new THREE.MeshBasicMaterial({ color: index === 0 ? 0x8fd3ff : 0xff9dc7 })
+  );
+  controller.add(marker);
+
   const ray = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
@@ -88,18 +113,64 @@ function makeController(index) {
 
   controller.addEventListener('selectstart', () => {
     selectCount += 1;
-    cube.scale.setScalar(1.4);
+
+    controller.updateMatrixWorld(true);
+    cube.updateMatrixWorld(true);
+    controller.getWorldPosition(inputPos[index]);
+
+    tempMatrix.identity().extractRotation(controller.matrixWorld);
+    tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
+    raycaster.set(inputPos[index], tempDirection);
+
+    const hit = raycaster.intersectObject(cube, false)[0];
+    if (hit && hit.distance < 2.5 && grabbedBy === -1) {
+      controller.attach(cube);
+      grabbedBy = index;
+    } else if (grabbedBy === -1) {
+      cube.scale.multiplyScalar(1.15);
+    }
   });
 
   controller.addEventListener('selectend', () => {
-    cube.scale.setScalar(1.0);
+    if (grabbedBy === index) {
+      scene.attach(cube);
+      grabbedBy = -1;
+    } else if (grabbedBy === -1) {
+      cube.scale.setScalar(1.0);
+    }
   });
 
   scene.add(controller);
+  inputs.push(controller);
 }
 
 makeController(0);
 makeController(1);
+
+function updateSpatialInputs() {
+  let connectedCount = 0;
+
+  for (let i = 0; i < inputs.length; i += 1) {
+    if (!controllerState[i].connected) continue;
+    inputs[i].getWorldPosition(inputPos[i]);
+    connectedCount += 1;
+  }
+
+  if (connectedCount === 2) {
+    inputDistance = inputPos[0].distanceTo(inputPos[1]);
+    const mapped = THREE.MathUtils.clamp(inputDistance, 0.15, 1.2);
+    const scale = THREE.MathUtils.mapLinear(mapped, 0.15, 1.2, 0.45, 1.8);
+    distanceRing.scale.setScalar(scale);
+    distanceRing.rotation.z += 0.012;
+  }
+
+  if (grabbedBy === -1) {
+    cube.rotation.x += 0.004;
+    cube.rotation.y += 0.006;
+  }
+
+  cube.getWorldPosition(cubeWorldPos);
+}
 
 function drawHud(time) {
   if (time - lastHudUpdate < 100) return;
@@ -125,21 +196,24 @@ function drawHud(time) {
   hudCtx.strokeRect(2, 2, hudCanvas.width - 4, hudCanvas.height - 4);
 
   hudCtx.fillStyle = '#ffffff';
-  hudCtx.font = '700 42px system-ui, sans-serif';
-  hudCtx.fillText('AEI QUEST WEBXR DEMO 01', 46, 70);
+  hudCtx.font = '700 40px system-ui, sans-serif';
+  hudCtx.fillText('AEI QUEST WEBXR DEMO 01.1', 42, 64);
 
-  hudCtx.font = '28px ui-monospace, monospace';
+  hudCtx.font = '25px ui-monospace, monospace';
+  const fmt = (v) => `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.z.toFixed(2)}`;
   const lines = [
     `mode: ${currentMode}`,
     `XR session: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen preview'}`,
-    `head xyz: ${headPos.x.toFixed(2)}  ${headPos.y.toFixed(2)}  ${headPos.z.toFixed(2)}`,
+    `head xyz: ${fmt(headPos)}`,
     `controllers: ${controllerCount}   hands: ${handCount}`,
-    `select / trigger events: ${selectCount}`,
-    `input 0: ${controllerState[0].handedness} ${controllerState[0].hand ? '(hand)' : ''}`,
-    `input 1: ${controllerState[1].handedness} ${controllerState[1].hand ? '(hand)' : ''}`,
+    `input 0 ${controllerState[0].handedness}: ${fmt(inputPos[0])}`,
+    `input 1 ${controllerState[1].handedness}: ${fmt(inputPos[1])}`,
+    `input distance: ${inputDistance.toFixed(3)} m`,
+    `cube xyz: ${fmt(cubeWorldPos)}   grabbed: ${grabbedBy >= 0 ? grabbedBy : 'no'}`,
+    `select / pinch events: ${selectCount}`,
   ];
 
-  lines.forEach((line, i) => hudCtx.fillText(line, 46, 132 + i * 48));
+  lines.forEach((line, i) => hudCtx.fillText(line, 42, 118 + i * 48));
   hudTexture.needsUpdate = true;
 }
 
@@ -161,6 +235,10 @@ async function startXR(mode) {
     await renderer.xr.setSession(session);
 
     session.addEventListener('end', () => {
+      if (grabbedBy >= 0) {
+        scene.attach(cube);
+        grabbedBy = -1;
+      }
       session = null;
       currentMode = 'screen';
       document.body.classList.remove('xr-active');
@@ -193,9 +271,8 @@ async function detectSupport() {
 }
 
 renderer.setAnimationLoop((time) => {
-  cube.rotation.x = time * 0.00035;
-  cube.rotation.y = time * 0.00055;
-  cube.position.y = 1.55 + Math.sin(time * 0.0012) * 0.06;
+  updateSpatialInputs();
+  cube.position.y += Math.sin(time * 0.0012) * 0.00015;
   drawHud(time);
   renderer.render(scene, camera);
 });
