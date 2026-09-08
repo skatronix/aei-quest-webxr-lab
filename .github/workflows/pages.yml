@@ -2,7 +2,7 @@ name: Deploy WebXR demo to GitHub Pages
 
 on:
   push:
-    branches: [main, bubble-test-01]
+    branches: [main, bubble-test-01, control-demo-01-xr-osc-fader]
   workflow_dispatch:
 
 permissions:
