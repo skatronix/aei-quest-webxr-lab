@@ -18,85 +18,157 @@ scene.background = new THREE.Color(0x070707);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
 camera.position.set(0, 1.6, 2.4);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x222222, 2.0));
-const key = new THREE.DirectionalLight(0xffffff, 2.2);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x202020, 2.0));
+const key = new THREE.DirectionalLight(0xffffff, 2.1);
 key.position.set(2, 4, 2);
 scene.add(key);
 
 const floor = new THREE.Mesh(
   new THREE.CircleGeometry(4, 64),
-  new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 })
+  new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.95 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = 0;
 scene.add(floor);
 
-const cube = new THREE.Mesh(
-  new THREE.BoxGeometry(0.32, 0.32, 0.32),
-  new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.28, metalness: 0.18 })
-);
-cube.position.set(0, 1.45, -0.8);
-scene.add(cube);
+// --- Bubble field -----------------------------------------------------------
+const BUBBLE_COUNT = 30;
+const POP_SPEED = 1.35; // m/s, tuned conservatively for Quest hand-tracking jitter
+const INPUT_RADIUS = 0.075;
+const POP_DURATION = 0.16;
+const BOUNDS = {
+  minX: -1.55,
+  maxX: 1.55,
+  minY: 0.45,
+  maxY: 2.35,
+  minZ: -2.35,
+  maxZ: -0.20,
+};
 
-// Continuous spatial-control visual: input distance drives this ring.
-const distanceRing = new THREE.Mesh(
-  new THREE.TorusGeometry(0.22, 0.025, 16, 96),
-  new THREE.MeshStandardMaterial({ color: 0xbdbdbd, roughness: 0.4, metalness: 0.2 })
-);
-distanceRing.position.set(0, 1.05, -1.0);
-scene.add(distanceRing);
+const bubbleGeometry = new THREE.SphereGeometry(1, 24, 16);
+const bubbles = [];
+let poppedCount = 0;
+let contactCount = 0;
 
-// World-space diagnostic panel, visible inside XR.
-const hudCanvas = document.createElement('canvas');
-hudCanvas.width = 1024;
-hudCanvas.height = 640;
-const hudCtx = hudCanvas.getContext('2d');
-const hudTexture = new THREE.CanvasTexture(hudCanvas);
-hudTexture.colorSpace = THREE.SRGBColorSpace;
-const hud = new THREE.Mesh(
-  new THREE.PlaneGeometry(1.45, 0.9),
-  new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true })
-);
-hud.position.set(0, 1.7, -1.9);
-scene.add(hud);
+function randomRange(min, max) {
+  return min + Math.random() * (max - min);
+}
 
+function makeBubbleMaterial() {
+  const material = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color().setHSL(Math.random(), 0.22, 0.88),
+    transparent: true,
+    opacity: 0.20,
+    roughness: 0.04,
+    metalness: 0.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.05,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  // Modern Three.js supports iridescence; older builds simply ignore these fields.
+  material.iridescence = 0.9;
+  material.iridescenceIOR = 1.3;
+  material.iridescenceThicknessRange = [120, 520];
+  return material;
+}
+
+function resetBubble(bubble, initial = false) {
+  bubble.radius = randomRange(0.065, 0.145);
+  bubble.baseOpacity = randomRange(0.15, 0.25);
+  bubble.phase = Math.random() * Math.PI * 2;
+  bubble.popping = false;
+  bubble.popAge = 0;
+  bubble.respawnTimer = 0;
+  bubble.mesh.visible = true;
+  bubble.mesh.material.opacity = bubble.baseOpacity;
+  bubble.mesh.scale.setScalar(bubble.radius);
+  bubble.mesh.position.set(
+    randomRange(BOUNDS.minX, BOUNDS.maxX),
+    randomRange(BOUNDS.minY, BOUNDS.maxY),
+    randomRange(BOUNDS.minZ, BOUNDS.maxZ)
+  );
+  bubble.velocity.set(
+    randomRange(-0.045, 0.045),
+    randomRange(0.015, 0.055),
+    randomRange(-0.035, 0.035)
+  );
+
+  if (!initial) {
+    bubble.mesh.position.y = BOUNDS.minY + randomRange(0.0, 0.30);
+  }
+}
+
+function createBubble() {
+  const mesh = new THREE.Mesh(bubbleGeometry, makeBubbleMaterial());
+  const bubble = {
+    mesh,
+    velocity: new THREE.Vector3(),
+    radius: 0.1,
+    baseOpacity: 0.2,
+    phase: 0,
+    popping: false,
+    popAge: 0,
+    respawnTimer: 0,
+  };
+  scene.add(mesh);
+  resetBubble(bubble, true);
+  bubbles.push(bubble);
+}
+
+for (let i = 0; i < BUBBLE_COUNT; i += 1) createBubble();
+
+function popBubble(bubble) {
+  if (bubble.popping || !bubble.mesh.visible) return;
+  bubble.popping = true;
+  bubble.popAge = 0;
+  bubble.velocity.multiplyScalar(0.18);
+  poppedCount += 1;
+}
+
+// --- XR input ---------------------------------------------------------------
 const controllerState = [
   { connected: false, handedness: '—', hand: false },
   { connected: false, handedness: '—', hand: false },
 ];
 
 const inputs = [];
+const inputMarkers = [];
+const inputRays = [];
 const inputPos = [new THREE.Vector3(), new THREE.Vector3()];
-const cubeWorldPos = new THREE.Vector3();
-const raycaster = new THREE.Raycaster();
-const tempMatrix = new THREE.Matrix4();
-const tempDirection = new THREE.Vector3();
+const previousInputPos = [new THREE.Vector3(), new THREE.Vector3()];
+const inputVelocity = [new THREE.Vector3(), new THREE.Vector3()];
+const inputSpeed = [0, 0];
+const inputHasPrevious = [false, false];
+const rawVelocity = new THREE.Vector3();
+const contactNormal = new THREE.Vector3();
+const pairDelta = new THREE.Vector3();
 
-let selectCount = 0;
 let currentMode = 'screen';
 let session = null;
 let lastHudUpdate = 0;
-let grabbedBy = -1;
-let inputDistance = 0;
+let lastFrameTime = 0;
 const headPos = new THREE.Vector3();
 
-function makeController(index) {
+function makeInput(index) {
   const controller = renderer.xr.getController(index);
 
   const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.035, 24, 16),
+    new THREE.SphereGeometry(0.035, 20, 14),
     new THREE.MeshBasicMaterial({ color: index === 0 ? 0x8fd3ff : 0xff9dc7 })
   );
-  controller.add(marker);
+  marker.visible = false;
+  scene.add(marker);
 
   const ray = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, 0, -1),
     ]),
-    new THREE.LineBasicMaterial({ color: 0xffffff })
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 })
   );
-  ray.scale.z = 2.0;
+  ray.scale.z = 1.25;
   controller.add(ray);
 
   controller.addEventListener('connected', (event) => {
@@ -105,72 +177,219 @@ function makeController(index) {
       handedness: event.data?.handedness || 'unknown',
       hand: Boolean(event.data?.hand),
     };
+    ray.visible = !controllerState[index].hand;
+    marker.visible = true;
+    inputHasPrevious[index] = false;
   });
 
   controller.addEventListener('disconnected', () => {
     controllerState[index] = { connected: false, handedness: '—', hand: false };
-  });
-
-  controller.addEventListener('selectstart', () => {
-    selectCount += 1;
-
-    controller.updateMatrixWorld(true);
-    cube.updateMatrixWorld(true);
-    controller.getWorldPosition(inputPos[index]);
-
-    tempMatrix.identity().extractRotation(controller.matrixWorld);
-    tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
-    raycaster.set(inputPos[index], tempDirection);
-
-    const hit = raycaster.intersectObject(cube, false)[0];
-    if (hit && hit.distance < 2.5 && grabbedBy === -1) {
-      controller.attach(cube);
-      grabbedBy = index;
-    } else if (grabbedBy === -1) {
-      cube.scale.multiplyScalar(1.15);
-    }
-  });
-
-  controller.addEventListener('selectend', () => {
-    if (grabbedBy === index) {
-      scene.attach(cube);
-      grabbedBy = -1;
-    } else if (grabbedBy === -1) {
-      cube.scale.setScalar(1.0);
-    }
+    marker.visible = false;
+    inputSpeed[index] = 0;
+    inputVelocity[index].set(0, 0, 0);
+    inputHasPrevious[index] = false;
   });
 
   scene.add(controller);
   inputs.push(controller);
+  inputMarkers.push(marker);
+  inputRays.push(ray);
 }
 
-makeController(0);
-makeController(1);
+makeInput(0);
+makeInput(1);
 
-function updateSpatialInputs() {
-  let connectedCount = 0;
+function getHandTipPosition(index, frame, target) {
+  if (!frame || !session || !controllerState[index].hand) return false;
+
+  const refSpace = renderer.xr.getReferenceSpace();
+  if (!refSpace) return false;
+
+  const handedness = controllerState[index].handedness;
+  const source = Array.from(session.inputSources).find(
+    (item) => item.hand && item.handedness === handedness
+  );
+  if (!source?.hand) return false;
+
+  const joint = source.hand.get('index-finger-tip');
+  if (!joint) return false;
+
+  const pose = frame.getJointPose(joint, refSpace);
+  if (!pose) return false;
+
+  target.set(
+    pose.transform.position.x,
+    pose.transform.position.y,
+    pose.transform.position.z
+  );
+  return true;
+}
+
+function updateInputKinematics(dt, frame) {
+  for (let i = 0; i < inputs.length; i += 1) {
+    if (!controllerState[i].connected) {
+      inputMarkers[i].visible = false;
+      continue;
+    }
+
+    const gotHandTip = getHandTipPosition(i, frame, inputPos[i]);
+    if (!gotHandTip) inputs[i].getWorldPosition(inputPos[i]);
+
+    inputMarkers[i].visible = true;
+    inputMarkers[i].position.copy(inputPos[i]);
+
+    if (inputHasPrevious[i] && dt > 0.0001) {
+      rawVelocity.copy(inputPos[i]).sub(previousInputPos[i]).multiplyScalar(1 / dt);
+      const blend = THREE.MathUtils.clamp(dt * 13.0, 0.0, 1.0);
+      inputVelocity[i].lerp(rawVelocity, blend);
+      inputSpeed[i] = inputVelocity[i].length();
+    } else {
+      inputVelocity[i].set(0, 0, 0);
+      inputSpeed[i] = 0;
+      inputHasPrevious[i] = true;
+    }
+
+    previousInputPos[i].copy(inputPos[i]);
+  }
+}
+
+function interactWithInputs(bubble) {
+  if (bubble.popping || !bubble.mesh.visible) return;
 
   for (let i = 0; i < inputs.length; i += 1) {
     if (!controllerState[i].connected) continue;
-    inputs[i].getWorldPosition(inputPos[i]);
-    connectedCount += 1;
-  }
 
-  if (connectedCount === 2) {
-    inputDistance = inputPos[0].distanceTo(inputPos[1]);
-    const mapped = THREE.MathUtils.clamp(inputDistance, 0.15, 1.2);
-    const scale = THREE.MathUtils.mapLinear(mapped, 0.15, 1.2, 0.45, 1.8);
-    distanceRing.scale.setScalar(scale);
-    distanceRing.rotation.z += 0.012;
-  }
+    const hitDistance = bubble.mesh.position.distanceTo(inputPos[i]);
+    const contactDistance = bubble.radius + INPUT_RADIUS;
+    if (hitDistance >= contactDistance) continue;
 
-  if (grabbedBy === -1) {
-    cube.rotation.x += 0.004;
-    cube.rotation.y += 0.006;
-  }
+    contactCount += 1;
 
-  cube.getWorldPosition(cubeWorldPos);
+    if (inputSpeed[i] >= POP_SPEED) {
+      popBubble(bubble);
+      return;
+    }
+
+    contactNormal.copy(bubble.mesh.position).sub(inputPos[i]);
+    if (contactNormal.lengthSq() < 0.000001) {
+      contactNormal.set(0, 1, 0);
+    } else {
+      contactNormal.normalize();
+    }
+
+    // Gentle contact: carry some hand velocity into the bubble, then separate surfaces.
+    bubble.velocity.addScaledVector(inputVelocity[i], 0.32);
+    bubble.velocity.addScaledVector(contactNormal, 0.055);
+    bubble.velocity.clampLength(0, 0.62);
+
+    const penetration = contactDistance - hitDistance;
+    bubble.mesh.position.addScaledVector(contactNormal, penetration * 0.70);
+  }
 }
+
+function updateBubblePairs() {
+  for (let i = 0; i < bubbles.length; i += 1) {
+    const a = bubbles[i];
+    if (!a.mesh.visible || a.popping) continue;
+
+    for (let j = i + 1; j < bubbles.length; j += 1) {
+      const b = bubbles[j];
+      if (!b.mesh.visible || b.popping) continue;
+
+      pairDelta.copy(b.mesh.position).sub(a.mesh.position);
+      const distance = pairDelta.length();
+      const minDistance = (a.radius + b.radius) * 0.88;
+      if (distance <= 0.0001 || distance >= minDistance) continue;
+
+      pairDelta.multiplyScalar(1 / distance);
+      const correction = (minDistance - distance) * 0.35;
+      a.mesh.position.addScaledVector(pairDelta, -correction);
+      b.mesh.position.addScaledVector(pairDelta, correction);
+      a.velocity.addScaledVector(pairDelta, -0.012);
+      b.velocity.addScaledVector(pairDelta, 0.012);
+    }
+  }
+}
+
+function updateBubbles(dt, time) {
+  for (const bubble of bubbles) {
+    if (!bubble.mesh.visible) {
+      bubble.respawnTimer -= dt;
+      if (bubble.respawnTimer <= 0) resetBubble(bubble, false);
+      continue;
+    }
+
+    if (bubble.popping) {
+      bubble.popAge += dt;
+      const t = THREE.MathUtils.clamp(bubble.popAge / POP_DURATION, 0, 1);
+      const membranePulse = 1 + Math.sin(t * Math.PI) * 0.65;
+      bubble.mesh.scale.setScalar(bubble.radius * membranePulse);
+      bubble.mesh.material.opacity = bubble.baseOpacity * (1 - t);
+
+      if (t >= 1) {
+        bubble.popping = false;
+        bubble.mesh.visible = false;
+        bubble.respawnTimer = randomRange(0.45, 1.10);
+      }
+      continue;
+    }
+
+    const seconds = time * 0.001;
+    bubble.velocity.x += Math.sin(seconds * 0.58 + bubble.phase) * 0.0035 * dt;
+    bubble.velocity.z += Math.cos(seconds * 0.44 + bubble.phase * 1.7) * 0.0028 * dt;
+    bubble.velocity.y += 0.006 * dt;
+
+    const drag = Math.exp(-0.42 * dt);
+    bubble.velocity.multiplyScalar(drag);
+    bubble.mesh.position.addScaledVector(bubble.velocity, dt);
+
+    interactWithInputs(bubble);
+
+    // Soft room bounds. Top bubbles wrap back from below to maintain a living field.
+    if (bubble.mesh.position.x < BOUNDS.minX + bubble.radius) {
+      bubble.mesh.position.x = BOUNDS.minX + bubble.radius;
+      bubble.velocity.x = Math.abs(bubble.velocity.x) * 0.7;
+    } else if (bubble.mesh.position.x > BOUNDS.maxX - bubble.radius) {
+      bubble.mesh.position.x = BOUNDS.maxX - bubble.radius;
+      bubble.velocity.x = -Math.abs(bubble.velocity.x) * 0.7;
+    }
+
+    if (bubble.mesh.position.z < BOUNDS.minZ + bubble.radius) {
+      bubble.mesh.position.z = BOUNDS.minZ + bubble.radius;
+      bubble.velocity.z = Math.abs(bubble.velocity.z) * 0.7;
+    } else if (bubble.mesh.position.z > BOUNDS.maxZ - bubble.radius) {
+      bubble.mesh.position.z = BOUNDS.maxZ - bubble.radius;
+      bubble.velocity.z = -Math.abs(bubble.velocity.z) * 0.7;
+    }
+
+    if (bubble.mesh.position.y > BOUNDS.maxY + bubble.radius) {
+      bubble.mesh.position.y = BOUNDS.minY - bubble.radius;
+      bubble.mesh.position.x = randomRange(BOUNDS.minX, BOUNDS.maxX);
+      bubble.mesh.position.z = randomRange(BOUNDS.minZ, BOUNDS.maxZ);
+      bubble.velocity.y = randomRange(0.02, 0.055);
+    } else if (bubble.mesh.position.y < BOUNDS.minY - bubble.radius) {
+      bubble.mesh.position.y = BOUNDS.minY + bubble.radius;
+      bubble.velocity.y = Math.abs(bubble.velocity.y) * 0.7;
+    }
+  }
+
+  updateBubblePairs();
+}
+
+// --- Diagnostic HUD ---------------------------------------------------------
+const hudCanvas = document.createElement('canvas');
+hudCanvas.width = 1024;
+hudCanvas.height = 600;
+const hudCtx = hudCanvas.getContext('2d');
+const hudTexture = new THREE.CanvasTexture(hudCanvas);
+hudTexture.colorSpace = THREE.SRGBColorSpace;
+const hud = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.35, 0.79),
+  new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true, depthTest: false })
+);
+hud.position.set(0, 1.78, -2.48);
+hud.renderOrder = 100;
+scene.add(hud);
 
 function drawHud(time) {
   if (time - lastHudUpdate < 100) return;
@@ -188,35 +407,37 @@ function drawHud(time) {
     }
   }
 
+  const alive = bubbles.filter((bubble) => bubble.mesh.visible).length;
+
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.fillStyle = 'rgba(5,5,5,.88)';
+  hudCtx.fillStyle = 'rgba(5,5,5,.80)';
   hudCtx.fillRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.strokeStyle = 'rgba(255,255,255,.35)';
+  hudCtx.strokeStyle = 'rgba(255,255,255,.28)';
   hudCtx.lineWidth = 3;
   hudCtx.strokeRect(2, 2, hudCanvas.width - 4, hudCanvas.height - 4);
 
   hudCtx.fillStyle = '#ffffff';
-  hudCtx.font = '700 40px system-ui, sans-serif';
-  hudCtx.fillText('AEI QUEST WEBXR DEMO 01.1', 42, 64);
+  hudCtx.font = '700 38px system-ui, sans-serif';
+  hudCtx.fillText('AEI QUEST — BUBBLE TEST 01', 42, 62);
 
-  hudCtx.font = '25px ui-monospace, monospace';
+  hudCtx.font = '24px ui-monospace, monospace';
   const fmt = (v) => `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.z.toFixed(2)}`;
   const lines = [
-    `mode: ${currentMode}`,
-    `XR session: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen preview'}`,
+    `mode: ${currentMode}   XR: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen'}`,
     `head xyz: ${fmt(headPos)}`,
     `controllers: ${controllerCount}   hands: ${handCount}`,
-    `input 0 ${controllerState[0].handedness}: ${fmt(inputPos[0])}`,
-    `input 1 ${controllerState[1].handedness}: ${fmt(inputPos[1])}`,
-    `input distance: ${inputDistance.toFixed(3)} m`,
-    `cube xyz: ${fmt(cubeWorldPos)}   grabbed: ${grabbedBy >= 0 ? grabbedBy : 'no'}`,
-    `select / pinch events: ${selectCount}`,
+    `input 0 ${controllerState[0].handedness}: ${inputSpeed[0].toFixed(2)} m/s`,
+    `input 1 ${controllerState[1].handedness}: ${inputSpeed[1].toFixed(2)} m/s`,
+    `bubbles: ${alive}/${BUBBLE_COUNT}   popped: ${poppedCount}`,
+    `contacts: ${contactCount}   pop threshold: ${POP_SPEED.toFixed(2)} m/s`,
+    `slow touch = push   fast poke = pop`,
   ];
 
-  lines.forEach((line, i) => hudCtx.fillText(line, 42, 118 + i * 48));
+  lines.forEach((line, i) => hudCtx.fillText(line, 42, 116 + i * 49));
   hudTexture.needsUpdate = true;
 }
 
+// --- XR session -------------------------------------------------------------
 async function startXR(mode) {
   if (!navigator.xr || session) return;
 
@@ -234,16 +455,16 @@ async function startXR(mode) {
     floor.visible = !isAR;
     await renderer.xr.setSession(session);
 
+    inputHasPrevious.fill(false);
+    inputSpeed.fill(0);
+
     session.addEventListener('end', () => {
-      if (grabbedBy >= 0) {
-        scene.attach(cube);
-        grabbedBy = -1;
-      }
       session = null;
       currentMode = 'screen';
       document.body.classList.remove('xr-active');
       scene.background = new THREE.Color(0x070707);
       floor.visible = true;
+      inputHasPrevious.fill(false);
     }, { once: true });
   } catch (error) {
     console.error(error);
@@ -270,9 +491,14 @@ async function detectSupport() {
   supportEl.textContent = `WebXR: VR ${vr ? 'YES' : 'NO'} / MR-AR ${ar ? 'YES' : 'NO'}`;
 }
 
-renderer.setAnimationLoop((time) => {
-  updateSpatialInputs();
-  cube.position.y += Math.sin(time * 0.0012) * 0.00015;
+renderer.setAnimationLoop((time, frame) => {
+  const dt = lastFrameTime > 0
+    ? THREE.MathUtils.clamp((time - lastFrameTime) / 1000, 0.001, 0.035)
+    : 1 / 72;
+  lastFrameTime = time;
+
+  updateInputKinematics(dt, frame);
+  updateBubbles(dt, time);
   drawHud(time);
   renderer.render(scene, camera);
 });
