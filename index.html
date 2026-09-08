@@ -4,32 +4,38 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#07090d" />
-    <meta
-      name="description"
-      content="AEI Quest WebXR Lab — UI Demo 01 spatial panel for Meta Quest 2."
-    />
-    <title>AEI Quest WebXR Lab — UI Demo 01</title>
+    <meta name="description" content="AEI XR Control Surface — Control Demo 01: Quest 2 WebXR OSC fader." />
+    <title>AEI XR Control Surface — OSC Fader 01</title>
   </head>
   <body>
     <main id="app">
       <section class="panel">
-        <p class="eyebrow">AEI XR / MR LAB</p>
-        <h1>UI Demo 01 — Spatial Panel</h1>
+        <p class="eyebrow">AEI XR CONTROL SURFACE</p>
+        <h1>Control Demo 01 — XR OSC Fader</h1>
         <p>
-          First WebXR interface study: a world-locked floating panel with three 3D buttons.
-          Controllers use ray pointing + trigger/select. Hands use direct fingertip hover + pinch.
+          One world-locked 3D fader. Hands use direct fingertip + pinch; controllers use ray + trigger.
+          Values are sent as 0.0–1.0 over WebSocket to the MBP bridge, then as OSC
+          <code>/aei/fader/1 &lt;float&gt;</code>.
         </p>
 
-        <div id="support" class="status">Checking WebXR support…</div>
+        <label class="field">
+          <span>Mac bridge WebSocket</span>
+          <input id="bridge-url" type="text" inputmode="url" placeholder="wss://192.168.1.10:8443" autocomplete="off" />
+        </label>
 
         <div class="actions">
+          <button id="connect-ws">CONNECT BRIDGE</button>
           <button id="enter-vr" disabled>ENTER VR</button>
           <button id="enter-ar" disabled>ENTER MR / AR</button>
         </div>
 
+        <div id="support" class="status">Checking WebXR support…</div>
+        <div id="network" class="status">WebSocket: disconnected</div>
+
         <p class="hint">
-          Test COLOR, PLAY and RESET. Watch how idle → hover → activated states change visually.
-          This demo is intentionally small so each XR UI concept is easy to inspect.
+          GitHub Pages is HTTPS, so the bridge must use <strong>wss://</strong>. For the first LAN test,
+          start the Mac bridge, open its HTTPS certificate page once in Quest Browser and accept the local certificate,
+          then return here and connect.
         </p>
       </section>
     </main>
