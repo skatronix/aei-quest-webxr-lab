@@ -1,4 +1,4 @@
-name: Deploy Bubble Test 01.1 preview to GitHub Pages
+name: Deploy Bubble Test 01.2 preview to GitHub Pages
 
 on:
   push:
@@ -18,10 +18,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Bubble Test 01.1
+      - name: Checkout Bubble Test 01.2
         uses: actions/checkout@v4
         with:
-          ref: bubble-test-01.1
+          ref: bubble-test-01.2-epi-visual
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -43,6 +43,7 @@ jobs:
         with:
           path: ./dist
 
+    
   deploy:
     environment:
       name: github-pages
