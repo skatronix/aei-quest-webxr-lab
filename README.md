@@ -1,58 +1,132 @@
 # AEI Quest WebXR Lab
 
-Privacy-first WebXR experiments for **Meta Quest 2**, developed on **Apple Silicon Mac** and run in **Meta Quest Browser**.
+Privacy-first WebXR experiments for **Meta Quest 2**, developed on **MBP M1** and run in **Meta Quest Browser** without Meta Developer Mode or Persona/ID verification.
 
-## Checkpoint
+## Current branch
 
-Quest 2 #01 has been taken into use and basic hardware has been tested. Developer Mode is intentionally **not enabled** because the current Meta developer path requested Persona/admin identity verification. The current development path therefore starts with browser-based WebXR and does not require APK sideloading.
+`control-demo-01-xr-osc-fader`
 
-## Demo 01
+Base checkpoint: `ui-demo-01-spatial-panel` (confirmed controller ray + trigger/select and hand fingertip + pinch input).
 
-The first demo tests:
+Do not merge this branch until the Quest 2 end-to-end test is confirmed.
 
-- immersive WebXR support
-- headset 6DoF tracking
-- Touch input-source detection
-- trigger/select events
-- WebXR hand-input detection when the browser exposes it
-- optional `immersive-ar` / passthrough mode when available
-- an in-world diagnostic HUD
+## Control Demo 01 — XR OSC Fader
 
-No Meta SDK is included. The application contains no analytics or custom telemetry.
+Goal:
 
-## Development
+`Quest Browser / WebXR -> secure WebSocket -> MBP M1 bridge -> OSC UDP -> test receiver / AV application`
+
+Control:
+
+- world-locked 3D panel
+- one vertical fader
+- normalized value `0.0 ... 1.0`
+- controller ray + trigger drag
+- direct hand fingertip + pinch drag
+- live numeric value
+- OSC address `/aei/fader/1`
+- OSC argument: float
+- WebSocket ACK used for simple round-trip latency display
+- control traffic limited to about 30 Hz for the first test
+
+## First end-to-end test on MBP M1
+
+Checkout this branch and build the WebXR app:
 
 ```bash
+git fetch origin
+git switch control-demo-01-xr-osc-fader
 npm install
-npm run dev
+npm run build
 ```
 
-The Vite development server is useful for desktop iteration. Quest WebXR testing should use an HTTPS origin; the first deployment target is GitHub Pages.
-
-Build locally:
+Install the bridge dependencies:
 
 ```bash
-npm run build
-npm run preview
+cd bridge
+npm install
 ```
 
-## GitHub Pages
+Find the Mac LAN IPv4 address. For Wi-Fi this is often:
 
-A workflow is included in `.github/workflows/pages.yml`.
+```bash
+ipconfig getifaddr en0
+```
 
-After creating the repository and pushing `main`, set **Settings → Pages → Source → GitHub Actions** if GitHub has not enabled it automatically. The deployed project-site URL will normally be:
+If that returns nothing, inspect interfaces with:
 
-`https://<github-user>.github.io/aei-quest-webxr-lab/`
+```bash
+ifconfig | grep "inet "
+```
 
-Open that URL in Meta Quest Browser and press **ENTER VR**. If **ENTER MR / AR** is enabled, test passthrough WebXR as well.
+Create a short-lived local TLS certificate using the actual LAN IP:
 
-## Planned sequence
+```bash
+zsh gen-cert.sh 192.168.X.X
+```
 
-1. Demo 01 — WebXR diagnostics
-2. Demo 02 — Quest → WebSocket → MBP
-3. Demo 03 — WebSocket bridge → OSC / MIDI
-4. Processing / Ableton / Unity / MadMapper integration
-5. Local-LAN HTTPS deployment so runtime traffic can stay off third-party hosting
-6. Re-evaluate native OpenXR / Unity APK development only if the benefit justifies Meta developer verification
+Start the OSC test receiver in one terminal:
 
-See [`docs/QUEST_2_INVENTORY.md`](docs/QUEST_2_INVENTORY.md).
+```bash
+cd bridge
+npm run receiver
+```
+
+Start the HTTPS/WebSocket/OSC bridge in another terminal:
+
+```bash
+cd bridge
+npm start
+```
+
+The bridge prints one or more URLs. Use the LAN interface that the Quest 2 can reach, for example:
+
+```text
+https://192.168.X.X:8443
+```
+
+Open that HTTPS URL in Quest Browser. The local certificate is self-signed, so Quest Browser may show a certificate warning; accept it for this local test if the displayed IP matches the Mac. The same origin serves the built XR UI and `wss://` endpoint, avoiding HTTPS -> insecure `ws://` mixed-content blocking.
+
+On the landing page enter:
+
+```text
+wss://192.168.X.X:8443
+```
+
+Press **CONNECT BRIDGE**, then **ENTER VR** or **ENTER MR / AR**.
+
+Expected result while moving the fader:
+
+Bridge terminal:
+
+```text
+[OSC] /aei/fader/1 0.537
+```
+
+OSC receiver terminal:
+
+```text
+... /aei/fader/1  0.537
+```
+
+Quest panel:
+
+- numeric value follows the fader
+- `WS CONNECTED`
+- round-trip latency appears when ACK packets return
+
+## Why local HTTPS is used for the first OSC test
+
+GitHub Pages serves the WebXR page over HTTPS. Modern browsers do not allow an HTTPS page to open an insecure `ws://` WebSocket, so a LAN bridge must use `wss://`. This branch therefore includes a local HTTPS + WSS bridge that can also serve the built XR app from the Mac. This keeps the first end-to-end traffic on the LAN and avoids depending on Meta Developer Mode.
+
+GitHub Pages build for this branch currently succeeds, but deployment is blocked by the repository's existing Pages environment/branch policy. The local HTTPS path is therefore the test deployment for Control Demo 01; do not change old checkpoints just to bypass that protection.
+
+## Project sequence
+
+1. **Control Demo 01 — XR OSC Fader** (current; awaiting Quest 2 validation)
+2. Lock working checkpoint after user validation
+3. Expand OSC controls only after the fader path is proven
+4. MIDI after OSC
+5. DMX / Art-Net / sACN later
+
+No Meta SDK, analytics, or custom telemetry is included.
