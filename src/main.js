@@ -7,50 +7,59 @@ const vrButton = document.querySelector('#enter-vr');
 const arButton = document.querySelector('#enter-ar');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x070707);
+scene.background = new THREE.Color(0x000000);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
 camera.position.set(0, 1.6, 2.4);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x202020, 1.5));
-const key = new THREE.DirectionalLight(0xffffff, 1.5);
-key.position.set(2, 4, 2);
-scene.add(key);
-
 const floor = new THREE.Mesh(
   new THREE.CircleGeometry(4, 64),
-  new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.95 })
+  new THREE.MeshBasicMaterial({ color: 0x050505, transparent: true, opacity: 0.86 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = 0;
 scene.add(floor);
 
-// --- Bubble field -----------------------------------------------------------
-const BUBBLE_COUNT = 30;
-const POP_IMPACT_SPEED = 0.95; // m/s toward the membrane, not tangential hand speed
+// ---------------------------------------------------------------------------
+// Bubble Test 01.2 — layered translucent visual field
+// Visual direction: warm, overlapping, semi-transparent organic membranes.
+// Interaction model is inherited from 01.1: gentle push/deform, direct impact pop.
+// ---------------------------------------------------------------------------
+
+const FIELD_COUNT = 26;
 const INPUT_RADIUS = 0.075;
-const POP_DURATION = 0.18;
-const DEFORM_DECAY = 6.5;
+const POP_IMPACT_SPEED = 0.95;
+const POP_DURATION = 0.24;
+const DEFORM_DECAY = 5.6;
+
 const BOUNDS = {
-  minX: -1.55,
-  maxX: 1.55,
-  minY: 0.45,
-  maxY: 2.35,
-  minZ: -2.35,
-  maxZ: -0.20,
+  minX: -1.70,
+  maxX: 1.70,
+  minY: 0.42,
+  maxY: 2.42,
+  minZ: -2.75,
+  maxZ: -0.28,
 };
 
-const bubbleGeometry = new THREE.SphereGeometry(1, 24, 16);
-const bubbles = [];
-const Z_AXIS = new THREE.Vector3(0, 0, 1);
-const deformQuaternion = new THREE.Quaternion();
+const PALETTE = [
+  0xfff4cc,
+  0xffe94f,
+  0xffbe2f,
+  0xff8a24,
+  0xf35328,
+  0xd92f25,
+  0xf4e9e4,
+  0xb9ad35,
+  0x8f7866,
+];
 
+const fields = [];
 let poppedCount = 0;
 let contactCount = 0;
 let frameImpactSpeed = 0;
@@ -61,128 +70,194 @@ function randomRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
-const bubbleVertexShader = `
-  varying vec3 vNormalV;
-  varying vec3 vViewPos;
+function randomItem(items) {
+  return items[Math.floor(Math.random() * items.length)];
+}
 
-  void main() {
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    vViewPos = mvPosition.xyz;
-    vNormalV = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * mvPosition;
+function seededWave(seed, value) {
+  return Math.sin(value * (2.0 + (seed % 5) * 0.37) + seed * 1.731);
+}
+
+function makeBlobGeometry(seed) {
+  const points = [];
+  const count = 15;
+  const phase = seed * 0.83;
+
+  for (let i = 0; i < count; i += 1) {
+    const a = (i / count) * Math.PI * 2;
+    const radial =
+      0.78 +
+      seededWave(seed, a + phase) * 0.16 +
+      Math.sin(a * 3.0 + phase * 1.7) * 0.10;
+
+    points.push(new THREE.Vector2(
+      Math.cos(a) * radial,
+      Math.sin(a) * radial * (0.72 + (seed % 4) * 0.07)
+    ));
   }
-`;
 
-const bubbleFragmentShader = `
-  uniform float uOpacity;
-  uniform float uPhase;
-  uniform float uTime;
+  const shape = new THREE.Shape(points);
+  const geometry = new THREE.ShapeGeometry(shape, 1);
+  geometry.center();
+  return geometry;
+}
 
-  varying vec3 vNormalV;
-  varying vec3 vViewPos;
+function makeShardGeometry(seed) {
+  const length = 0.95 + (seed % 4) * 0.18;
+  const width = 0.07 + (seed % 3) * 0.035;
+  const shape = new THREE.Shape([
+    new THREE.Vector2(-length, -width),
+    new THREE.Vector2(length * 0.92, 0),
+    new THREE.Vector2(-length * 0.28, width * 1.35),
+  ]);
+  const geometry = new THREE.ShapeGeometry(shape, 1);
+  geometry.center();
+  return geometry;
+}
 
-  void main() {
-    vec3 n = normalize(vNormalV);
-    vec3 viewDir = normalize(-vViewPos);
+const blobGeometries = Array.from({ length: 6 }, (_, i) => makeBlobGeometry(i + 1));
+const shardGeometries = Array.from({ length: 3 }, (_, i) => makeShardGeometry(i + 11));
 
-    float fresnel = pow(1.0 - abs(dot(n, viewDir)), 2.15);
-    float film = 0.5 + 0.5 * sin(
-      uPhase + uTime * 0.45 + n.x * 5.5 + n.y * 7.0 + n.z * 3.0
-    );
-
-    vec3 cyan = vec3(0.38, 0.92, 1.00);
-    vec3 magenta = vec3(1.00, 0.45, 0.86);
-    vec3 gold = vec3(1.00, 0.90, 0.52);
-    vec3 tint = mix(cyan, magenta, film);
-    tint = mix(tint, gold, 0.22 + 0.18 * sin(uPhase + n.y * 8.0));
-
-    vec3 lightDir = normalize(vec3(-0.45, 0.72, 0.52));
-    float glint = pow(max(dot(n, lightDir), 0.0), 22.0);
-    vec3 color = mix(vec3(0.92, 0.97, 1.0), tint, 0.58);
-    color *= 0.52 + fresnel * 1.05;
-    color += glint * vec3(1.0);
-
-    float alpha = uOpacity * (0.12 + fresnel * 1.18 + glint * 0.55);
-    gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.72));
-  }
-`;
-
-function makeBubbleMaterial(phase) {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      uOpacity: { value: 0.22 },
-      uPhase: { value: phase },
-      uTime: { value: 0 },
-    },
-    vertexShader: bubbleVertexShader,
-    fragmentShader: bubbleFragmentShader,
+function makeMembraneMaterial(color, opacity) {
+  return new THREE.MeshBasicMaterial({
+    color,
     transparent: true,
-    depthWrite: false,
+    opacity,
     side: THREE.DoubleSide,
+    depthWrite: false,
+    depthTest: true,
+    blending: THREE.NormalBlending,
   });
 }
 
-function resetBubble(bubble, initial = false) {
-  bubble.radius = randomRange(0.065, 0.145);
-  bubble.baseOpacity = randomRange(0.18, 0.28);
-  bubble.phase = Math.random() * Math.PI * 2;
-  bubble.popping = false;
-  bubble.popAge = 0;
-  bubble.respawnTimer = 0;
-  bubble.deform = 0;
-  bubble.deformNormal.set(0, 0, 1);
-  bubble.mesh.visible = true;
-  bubble.mesh.quaternion.identity();
-  bubble.mesh.scale.setScalar(bubble.radius);
-  bubble.mesh.material.uniforms.uOpacity.value = bubble.baseOpacity;
-  bubble.mesh.material.uniforms.uPhase.value = bubble.phase;
-  bubble.mesh.position.set(
+function makeLayer(isShard = false) {
+  const geometry = isShard ? randomItem(shardGeometries) : randomItem(blobGeometries);
+  const baseOpacity = isShard ? randomRange(0.12, 0.24) : randomRange(0.10, 0.23);
+  const material = makeMembraneMaterial(randomItem(PALETTE), baseOpacity);
+  const mesh = new THREE.Mesh(geometry, material);
+
+  const baseScale = new THREE.Vector3(
+    isShard ? randomRange(0.35, 0.68) : randomRange(0.42, 0.88),
+    isShard ? randomRange(0.18, 0.38) : randomRange(0.32, 0.78),
+    1
+  );
+
+  mesh.scale.copy(baseScale);
+  mesh.rotation.z = randomRange(-Math.PI, Math.PI);
+  mesh.position.set(
+    randomRange(-0.12, 0.12),
+    randomRange(-0.10, 0.10),
+    randomRange(-0.05, 0.05)
+  );
+
+  return {
+    mesh,
+    baseScale,
+    baseOpacity,
+    spin: randomRange(-0.15, 0.15),
+    wobble: randomRange(0.35, 0.95),
+    phase: randomRange(0, Math.PI * 2),
+  };
+}
+
+function recolorField(field) {
+  for (const layer of field.layers) {
+    layer.mesh.material.color.setHex(randomItem(PALETTE));
+    layer.baseOpacity = randomRange(0.10, layer.isShard ? 0.24 : 0.23);
+    layer.mesh.material.opacity = layer.baseOpacity;
+  }
+}
+
+function resetField(field, initial = false) {
+  field.radius = randomRange(0.22, 0.42);
+  field.phase = randomRange(0, Math.PI * 2);
+  field.popping = false;
+  field.popAge = 0;
+  field.respawnTimer = 0;
+  field.deform = 0;
+  field.root.visible = true;
+  field.root.scale.setScalar(1);
+
+  field.root.position.set(
     randomRange(BOUNDS.minX, BOUNDS.maxX),
     randomRange(BOUNDS.minY, BOUNDS.maxY),
     randomRange(BOUNDS.minZ, BOUNDS.maxZ)
   );
-  bubble.velocity.set(
-    randomRange(-0.045, 0.045),
-    randomRange(0.015, 0.055),
-    randomRange(-0.035, 0.035)
-  );
 
   if (!initial) {
-    bubble.mesh.position.y = BOUNDS.minY + randomRange(0.0, 0.30);
+    field.root.position.y = BOUNDS.minY + randomRange(0.0, 0.45);
+    recolorField(field);
+  }
+
+  field.root.rotation.set(
+    randomRange(-0.52, 0.52),
+    randomRange(-0.62, 0.62),
+    randomRange(-Math.PI, Math.PI)
+  );
+
+  field.velocity.set(
+    randomRange(-0.055, 0.055),
+    randomRange(0.018, 0.065),
+    randomRange(-0.045, 0.045)
+  );
+
+  field.angularVelocity.set(
+    randomRange(-0.12, 0.12),
+    randomRange(-0.12, 0.12),
+    randomRange(-0.18, 0.18)
+  );
+
+  for (const layer of field.layers) {
+    layer.mesh.visible = true;
+    layer.mesh.material.opacity = layer.baseOpacity;
+    layer.mesh.scale.copy(layer.baseScale);
   }
 }
 
-function createBubble() {
-  const phase = Math.random() * Math.PI * 2;
-  const mesh = new THREE.Mesh(bubbleGeometry, makeBubbleMaterial(phase));
-  const bubble = {
-    mesh,
+function createField() {
+  const root = new THREE.Group();
+  const layers = [];
+
+  const layerCount = Math.random() < 0.52 ? 3 : 4;
+  for (let i = 0; i < layerCount; i += 1) {
+    const isShard = i === layerCount - 1 && Math.random() < 0.68;
+    const layer = makeLayer(isShard);
+    layer.isShard = isShard;
+    root.add(layer.mesh);
+    layers.push(layer);
+  }
+
+  const field = {
+    root,
+    layers,
     velocity: new THREE.Vector3(),
-    radius: 0.1,
-    baseOpacity: 0.22,
-    phase,
+    angularVelocity: new THREE.Vector3(),
+    radius: 0.3,
+    phase: 0,
+    deform: 0,
     popping: false,
     popAge: 0,
     respawnTimer: 0,
-    deform: 0,
-    deformNormal: new THREE.Vector3(0, 0, 1),
   };
-  scene.add(mesh);
-  resetBubble(bubble, true);
-  bubbles.push(bubble);
+
+  scene.add(root);
+  resetField(field, true);
+  fields.push(field);
 }
 
-for (let i = 0; i < BUBBLE_COUNT; i += 1) createBubble();
+for (let i = 0; i < FIELD_COUNT; i += 1) createField();
 
-function popBubble(bubble) {
-  if (bubble.popping || !bubble.mesh.visible) return;
-  bubble.popping = true;
-  bubble.popAge = 0;
-  bubble.velocity.multiplyScalar(0.18);
+function popField(field) {
+  if (field.popping || !field.root.visible) return;
+  field.popping = true;
+  field.popAge = 0;
+  field.velocity.multiplyScalar(0.30);
+  field.angularVelocity.multiplyScalar(2.4);
   poppedCount += 1;
 }
 
 // --- XR input ---------------------------------------------------------------
+
 const controllerState = [
   { connected: false, handedness: '—', hand: false },
   { connected: false, handedness: '—', hand: false },
@@ -199,7 +274,6 @@ const inputHasPrevious = [false, false];
 
 const rawVelocity = new THREE.Vector3();
 const contactNormal = new THREE.Vector3();
-const pairDelta = new THREE.Vector3();
 
 let currentMode = 'screen';
 let session = null;
@@ -211,11 +285,11 @@ function makeInput(index) {
   const controller = renderer.xr.getController(index);
 
   const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.032, 16, 12),
+    new THREE.SphereGeometry(0.028, 12, 10),
     new THREE.MeshBasicMaterial({
-      color: index === 0 ? 0x8fd3ff : 0xff9dc7,
+      color: index === 0 ? 0xfff27d : 0xff7a54,
       transparent: true,
-      opacity: 0.78,
+      opacity: 0.74,
     })
   );
   marker.visible = false;
@@ -226,7 +300,7 @@ function makeInput(index) {
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, 0, -1),
     ]),
-    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 })
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22 })
   );
   ray.scale.z = 1.25;
   controller.add(ray);
@@ -300,7 +374,7 @@ function updateInputKinematics(dt, frame) {
 
     if (inputHasPrevious[i] && dt > 0.0001) {
       rawVelocity.copy(inputPos[i]).sub(previousInputPos[i]).multiplyScalar(1 / dt);
-      const blend = THREE.MathUtils.clamp(dt * 12.0, 0.0, 1.0);
+      const blend = THREE.MathUtils.clamp(dt * 12.0, 0, 1);
       inputVelocity[i].lerp(rawVelocity, blend);
       inputSpeed[i] = inputVelocity[i].length();
     } else {
@@ -313,192 +387,169 @@ function updateInputKinematics(dt, frame) {
   }
 }
 
-function interactWithInputs(bubble) {
-  if (bubble.popping || !bubble.mesh.visible) return;
+function interactWithField(field) {
+  if (field.popping || !field.root.visible) return;
 
   for (let i = 0; i < inputs.length; i += 1) {
     if (!controllerState[i].connected) continue;
 
-    const hitDistance = bubble.mesh.position.distanceTo(inputPos[i]);
-    const contactDistance = bubble.radius + INPUT_RADIUS;
+    const hitDistance = field.root.position.distanceTo(inputPos[i]);
+    const contactDistance = field.radius + INPUT_RADIUS;
     if (hitDistance >= contactDistance) continue;
 
     contactCount += 1;
 
-    contactNormal.copy(bubble.mesh.position).sub(inputPos[i]);
-    if (contactNormal.lengthSq() < 0.000001) {
-      contactNormal.set(0, 0, 1);
-    } else {
-      contactNormal.normalize();
-    }
+    contactNormal.copy(field.root.position).sub(inputPos[i]);
+    if (contactNormal.lengthSq() < 0.000001) contactNormal.set(0, 0, 1);
+    else contactNormal.normalize();
 
-    // Only motion into the membrane counts as popping impact.
-    // Tangential swipes can be fast without bursting the bubble.
     const impactSpeed = Math.max(0, inputVelocity[i].dot(contactNormal));
     frameImpactSpeed = Math.max(frameImpactSpeed, impactSpeed);
 
     const penetration = contactDistance - hitDistance;
     const penetrationRatio = THREE.MathUtils.clamp(penetration / contactDistance, 0, 1);
     const deformation = THREE.MathUtils.clamp(
-      impactSpeed * 0.28 + penetrationRatio * 0.34,
+      impactSpeed * 0.24 + penetrationRatio * 0.42,
       0,
-      0.42
+      0.46
     );
 
-    if (deformation > bubble.deform) {
-      bubble.deform = deformation;
-      bubble.deformNormal.copy(contactNormal);
-    }
+    field.deform = Math.max(field.deform, deformation);
 
     if (impactSpeed >= POP_IMPACT_SPEED) {
-      popBubble(bubble);
+      popField(field);
       return;
     }
 
-    // Gentle contact transfers movement, while a sideways swipe mostly carries the bubble.
-    bubble.velocity.addScaledVector(inputVelocity[i], 0.27);
-    bubble.velocity.addScaledVector(contactNormal, 0.045 + penetrationRatio * 0.035);
-    bubble.velocity.clampLength(0, 0.58);
+    field.velocity.addScaledVector(inputVelocity[i], 0.24);
+    field.velocity.addScaledVector(contactNormal, 0.040 + penetrationRatio * 0.040);
+    field.velocity.clampLength(0, 0.62);
 
-    bubble.mesh.position.addScaledVector(contactNormal, penetration * 0.68);
+    field.angularVelocity.x += inputVelocity[i].y * 0.028;
+    field.angularVelocity.y -= inputVelocity[i].x * 0.028;
+    field.angularVelocity.z += (inputVelocity[i].x - inputVelocity[i].y) * 0.018;
+
+    field.root.position.addScaledVector(contactNormal, penetration * 0.66);
   }
 }
 
-function updateBubblePairs() {
-  for (let i = 0; i < bubbles.length; i += 1) {
-    const a = bubbles[i];
-    if (!a.mesh.visible || a.popping) continue;
-
-    for (let j = i + 1; j < bubbles.length; j += 1) {
-      const b = bubbles[j];
-      if (!b.mesh.visible || b.popping) continue;
-
-      pairDelta.copy(b.mesh.position).sub(a.mesh.position);
-      const distance = pairDelta.length();
-      const minDistance = (a.radius + b.radius) * 0.88;
-      if (distance <= 0.0001 || distance >= minDistance) continue;
-
-      pairDelta.multiplyScalar(1 / distance);
-      const correction = (minDistance - distance) * 0.32;
-      a.mesh.position.addScaledVector(pairDelta, -correction);
-      b.mesh.position.addScaledVector(pairDelta, correction);
-      a.velocity.addScaledVector(pairDelta, -0.010);
-      b.velocity.addScaledVector(pairDelta, 0.010);
-    }
-  }
-}
-
-function updateBubbleShape(bubble, dt) {
-  if (bubble.deform <= 0.001) {
-    bubble.mesh.scale.setScalar(bubble.radius);
-    return;
-  }
-
-  deformQuaternion.setFromUnitVectors(Z_AXIS, bubble.deformNormal);
-  bubble.mesh.quaternion.slerp(
-    deformQuaternion,
-    THREE.MathUtils.clamp(dt * 18.0, 0, 1)
+function updateFieldVisual(field, dt, seconds) {
+  const deform = field.deform;
+  const pulse = 1 + deform * 0.18;
+  field.root.scale.set(
+    pulse,
+    1 - deform * 0.13,
+    1 + deform * 0.11
   );
 
-  const squash = bubble.deform;
-  bubble.mesh.scale.set(
-    bubble.radius * (1 + squash * 0.24),
-    bubble.radius * (1 + squash * 0.24),
-    bubble.radius * (1 - squash * 0.52)
-  );
+  for (let i = 0; i < field.layers.length; i += 1) {
+    const layer = field.layers[i];
+    const wobble = Math.sin(seconds * layer.wobble + layer.phase + field.phase) * 0.055;
+    const breathe = 1 + Math.sin(seconds * 0.58 + layer.phase) * 0.035;
 
-  bubble.deform *= Math.exp(-DEFORM_DECAY * dt);
+    layer.mesh.rotation.z += layer.spin * dt;
+    layer.mesh.rotation.x = wobble * 0.45;
+    layer.mesh.rotation.y = Math.cos(seconds * 0.43 + layer.phase) * 0.08;
+    layer.mesh.scale.set(
+      layer.baseScale.x * breathe * (1 + deform * (0.16 + i * 0.025)),
+      layer.baseScale.y * (2 - breathe) * (1 - deform * 0.08),
+      1
+    );
+  }
+
+  field.deform *= Math.exp(-DEFORM_DECAY * dt);
 }
 
-function updateBubbles(dt, time) {
+function updateFields(dt, time) {
   const seconds = time * 0.001;
 
-  for (const bubble of bubbles) {
-    bubble.mesh.material.uniforms.uTime.value = seconds;
-
-    if (!bubble.mesh.visible) {
-      bubble.respawnTimer -= dt;
-      if (bubble.respawnTimer <= 0) resetBubble(bubble, false);
+  for (const field of fields) {
+    if (!field.root.visible) {
+      field.respawnTimer -= dt;
+      if (field.respawnTimer <= 0) resetField(field, false);
       continue;
     }
 
-    if (bubble.popping) {
-      bubble.popAge += dt;
-      const t = THREE.MathUtils.clamp(bubble.popAge / POP_DURATION, 0, 1);
-      const membranePulse = 1 + Math.sin(t * Math.PI) * 0.72;
-      bubble.mesh.scale.setScalar(bubble.radius * membranePulse);
-      bubble.mesh.material.uniforms.uOpacity.value = bubble.baseOpacity * (1 - t);
-      bubble.mesh.rotation.z += dt * 4.0;
+    if (field.popping) {
+      field.popAge += dt;
+      const t = THREE.MathUtils.clamp(field.popAge / POP_DURATION, 0, 1);
+      const pulse = 1 + Math.sin(t * Math.PI) * 0.42 + t * 0.30;
+      field.root.scale.setScalar(pulse);
+
+      for (let i = 0; i < field.layers.length; i += 1) {
+        const layer = field.layers[i];
+        layer.mesh.material.opacity = layer.baseOpacity * (1 - t);
+        layer.mesh.rotation.z += (0.9 + i * 0.35) * dt;
+        layer.mesh.position.x += Math.cos(layer.phase) * 0.16 * dt;
+        layer.mesh.position.y += Math.sin(layer.phase) * 0.16 * dt;
+      }
 
       if (t >= 1) {
-        bubble.popping = false;
-        bubble.mesh.visible = false;
-        bubble.respawnTimer = randomRange(0.45, 1.10);
+        field.popping = false;
+        field.root.visible = false;
+        field.respawnTimer = randomRange(0.55, 1.25);
       }
       continue;
     }
 
-    bubble.mesh.material.uniforms.uOpacity.value = bubble.baseOpacity;
+    field.velocity.x += Math.sin(seconds * 0.44 + field.phase) * 0.0038 * dt;
+    field.velocity.z += Math.cos(seconds * 0.37 + field.phase * 1.7) * 0.0032 * dt;
+    field.velocity.y += 0.0048 * dt;
 
-    bubble.velocity.x += Math.sin(seconds * 0.58 + bubble.phase) * 0.0035 * dt;
-    bubble.velocity.z += Math.cos(seconds * 0.44 + bubble.phase * 1.7) * 0.0028 * dt;
-    bubble.velocity.y += 0.006 * dt;
+    const drag = Math.exp(-0.38 * dt);
+    field.velocity.multiplyScalar(drag);
+    field.root.position.addScaledVector(field.velocity, dt);
 
-    const drag = Math.exp(-0.42 * dt);
-    bubble.velocity.multiplyScalar(drag);
-    bubble.mesh.position.addScaledVector(bubble.velocity, dt);
+    field.root.rotation.x += field.angularVelocity.x * dt;
+    field.root.rotation.y += field.angularVelocity.y * dt;
+    field.root.rotation.z += field.angularVelocity.z * dt;
+    field.angularVelocity.multiplyScalar(Math.exp(-0.50 * dt));
 
-    interactWithInputs(bubble);
-    updateBubbleShape(bubble, dt);
+    interactWithField(field);
+    updateFieldVisual(field, dt, seconds);
 
-    // Soft room bounds. Top bubbles wrap back from below to maintain a living field.
-    if (bubble.mesh.position.x < BOUNDS.minX + bubble.radius) {
-      bubble.mesh.position.x = BOUNDS.minX + bubble.radius;
-      bubble.velocity.x = Math.abs(bubble.velocity.x) * 0.7;
-    } else if (bubble.mesh.position.x > BOUNDS.maxX - bubble.radius) {
-      bubble.mesh.position.x = BOUNDS.maxX - bubble.radius;
-      bubble.velocity.x = -Math.abs(bubble.velocity.x) * 0.7;
+    const r = field.radius * 0.52;
+
+    if (field.root.position.x < BOUNDS.minX - r) {
+      field.root.position.x = BOUNDS.maxX + r;
+    } else if (field.root.position.x > BOUNDS.maxX + r) {
+      field.root.position.x = BOUNDS.minX - r;
     }
 
-    if (bubble.mesh.position.z < BOUNDS.minZ + bubble.radius) {
-      bubble.mesh.position.z = BOUNDS.minZ + bubble.radius;
-      bubble.velocity.z = Math.abs(bubble.velocity.z) * 0.7;
-    } else if (bubble.mesh.position.z > BOUNDS.maxZ - bubble.radius) {
-      bubble.mesh.position.z = BOUNDS.maxZ - bubble.radius;
-      bubble.velocity.z = -Math.abs(bubble.velocity.z) * 0.7;
+    if (field.root.position.z < BOUNDS.minZ - r) {
+      field.root.position.z = BOUNDS.maxZ + r;
+    } else if (field.root.position.z > BOUNDS.maxZ + r) {
+      field.root.position.z = BOUNDS.minZ - r;
     }
 
-    if (bubble.mesh.position.y > BOUNDS.maxY + bubble.radius) {
-      bubble.mesh.position.y = BOUNDS.minY - bubble.radius;
-      bubble.mesh.position.x = randomRange(BOUNDS.minX, BOUNDS.maxX);
-      bubble.mesh.position.z = randomRange(BOUNDS.minZ, BOUNDS.maxZ);
-      bubble.velocity.y = randomRange(0.02, 0.055);
-    } else if (bubble.mesh.position.y < BOUNDS.minY - bubble.radius) {
-      bubble.mesh.position.y = BOUNDS.minY + bubble.radius;
-      bubble.velocity.y = Math.abs(bubble.velocity.y) * 0.7;
+    if (field.root.position.y > BOUNDS.maxY + r) {
+      field.root.position.y = BOUNDS.minY - r;
+      field.root.position.x = randomRange(BOUNDS.minX, BOUNDS.maxX);
+      field.root.position.z = randomRange(BOUNDS.minZ, BOUNDS.maxZ);
+      field.velocity.y = randomRange(0.02, 0.065);
     }
   }
-
-  updateBubblePairs();
 }
 
 // --- Diagnostic HUD ---------------------------------------------------------
+
 const hudCanvas = document.createElement('canvas');
 hudCanvas.width = 1024;
-hudCanvas.height = 650;
+hudCanvas.height = 520;
 const hudCtx = hudCanvas.getContext('2d');
 const hudTexture = new THREE.CanvasTexture(hudCanvas);
 hudTexture.colorSpace = THREE.SRGBColorSpace;
+
 const hud = new THREE.Mesh(
-  new THREE.PlaneGeometry(1.38, 0.88),
+  new THREE.PlaneGeometry(1.28, 0.65),
   new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true, depthTest: false })
 );
-hud.position.set(0, 1.78, -2.48);
+hud.position.set(0, 1.82, -2.64);
 hud.renderOrder = 100;
 scene.add(hud);
 
 function drawHud(time) {
-  if (time - lastHudUpdate < 100) return;
+  if (time - lastHudUpdate < 120) return;
   lastHudUpdate = time;
 
   const xrCamera = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
@@ -513,37 +564,37 @@ function drawHud(time) {
     }
   }
 
-  const alive = bubbles.filter((bubble) => bubble.mesh.visible).length;
+  const alive = fields.filter((field) => field.root.visible).length;
 
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.fillStyle = 'rgba(5,5,5,.80)';
+  hudCtx.fillStyle = 'rgba(0,0,0,.64)';
   hudCtx.fillRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.strokeStyle = 'rgba(255,255,255,.28)';
+  hudCtx.strokeStyle = 'rgba(255,217,91,.46)';
   hudCtx.lineWidth = 3;
   hudCtx.strokeRect(2, 2, hudCanvas.width - 4, hudCanvas.height - 4);
 
-  hudCtx.fillStyle = '#ffffff';
-  hudCtx.font = '700 38px system-ui, sans-serif';
-  hudCtx.fillText('AEI QUEST — BUBBLE TEST 01.1', 42, 62);
+  hudCtx.fillStyle = '#fff4ca';
+  hudCtx.font = '700 34px system-ui, sans-serif';
+  hudCtx.fillText('AEI QUEST — BUBBLE TEST 01.2', 40, 58);
 
-  hudCtx.font = '24px ui-monospace, monospace';
-  const fmt = (v) => `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.z.toFixed(2)}`;
+  hudCtx.fillStyle = '#ffffff';
+  hudCtx.font = '23px ui-monospace, monospace';
   const lines = [
-    `mode: ${currentMode}   XR: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen'}   FPS: ${fpsSmoothed.toFixed(0)}`,
-    `head xyz: ${fmt(headPos)}`,
+    `mode: ${currentMode}   XR: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen'}   fps: ${fpsSmoothed.toFixed(0)}`,
     `controllers: ${controllerCount}   hands: ${handCount}`,
     `input 0 ${controllerState[0].handedness}: ${inputSpeed[0].toFixed(2)} m/s`,
     `input 1 ${controllerState[1].handedness}: ${inputSpeed[1].toFixed(2)} m/s`,
-    `impact: ${displayedImpactSpeed.toFixed(2)} m/s   pop >= ${POP_IMPACT_SPEED.toFixed(2)} m/s`,
-    `bubbles: ${alive}/${BUBBLE_COUNT}   popped: ${poppedCount}   contacts: ${contactCount}`,
-    `slow push = deform/move   fast DIRECT poke = pop`,
+    `impact: ${displayedImpactSpeed.toFixed(2)} m/s   pop: ${POP_IMPACT_SPEED.toFixed(2)} m/s`,
+    `field: ${alive}/${FIELD_COUNT}   popped: ${poppedCount}   contacts: ${contactCount}`,
+    `slow touch = bend / carry   direct fast poke = pop`,
   ];
 
-  lines.forEach((line, i) => hudCtx.fillText(line, 42, 116 + i * 53));
+  lines.forEach((line, i) => hudCtx.fillText(line, 40, 112 + i * 50));
   hudTexture.needsUpdate = true;
 }
 
 // --- XR session -------------------------------------------------------------
+
 async function startXR(mode) {
   if (!navigator.xr || session) return;
 
@@ -557,7 +608,7 @@ async function startXR(mode) {
     session = await navigator.xr.requestSession(mode, init);
     currentMode = isAR ? 'MR / AR' : 'VR';
     document.body.classList.add('xr-active');
-    scene.background = isAR ? null : new THREE.Color(0x070707);
+    scene.background = isAR ? null : new THREE.Color(0x000000);
     floor.visible = !isAR;
     await renderer.xr.setSession(session);
 
@@ -568,7 +619,7 @@ async function startXR(mode) {
       session = null;
       currentMode = 'screen';
       document.body.classList.remove('xr-active');
-      scene.background = new THREE.Color(0x070707);
+      scene.background = new THREE.Color(0x000000);
       floor.visible = true;
       inputHasPrevious.fill(false);
     }, { once: true });
@@ -598,23 +649,21 @@ async function detectSupport() {
 }
 
 renderer.setAnimationLoop((time, frame) => {
-  const rawDt = lastFrameTime > 0 ? (time - lastFrameTime) / 1000 : 1 / 72;
-  const dt = THREE.MathUtils.clamp(rawDt, 0.001, 0.05);
+  const dt = lastFrameTime > 0
+    ? THREE.MathUtils.clamp((time - lastFrameTime) / 1000, 0.001, 0.035)
+    : 1 / 72;
   lastFrameTime = time;
 
-  const instantFps = rawDt > 0.0001 ? 1 / rawDt : 72;
-  fpsSmoothed = THREE.MathUtils.lerp(
-    fpsSmoothed,
-    THREE.MathUtils.clamp(instantFps, 1, 144),
-    0.08
-  );
+  const instantFps = 1 / dt;
+  fpsSmoothed = THREE.MathUtils.lerp(fpsSmoothed, instantFps, 0.055);
 
   frameImpactSpeed = 0;
   updateInputKinematics(dt, frame);
-  updateBubbles(dt, time);
-  displayedImpactSpeed = Math.max(
+  updateFields(dt, time);
+  displayedImpactSpeed = THREE.MathUtils.lerp(
+    displayedImpactSpeed,
     frameImpactSpeed,
-    displayedImpactSpeed * Math.exp(-4.0 * dt)
+    frameImpactSpeed > displayedImpactSpeed ? 0.42 : 0.10
   );
 
   drawHud(time);
