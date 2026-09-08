@@ -1,4 +1,4 @@
-name: Deploy Orbital Node Test 01 preview to GitHub Pages
+name: Deploy Interactive Orbital Node Test 01 preview to GitHub Pages
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Orbital Node Test 01
+      - name: Checkout Interactive Orbital Node Test 01
         uses: actions/checkout@v4
         with:
           ref: orbital-node-test-01
@@ -43,7 +43,6 @@ jobs:
         with:
           path: ./dist
 
-    
   deploy:
     environment:
       name: github-pages
