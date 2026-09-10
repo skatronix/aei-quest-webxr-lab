@@ -1,4 +1,4 @@
-name: Deploy UI Demo 01 spatial panel to GitHub Pages
+name: Deploy Bubble Test 01.1 to GitHub Pages
 
 on:
   push:
@@ -18,10 +18,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout UI Demo 01
+      - name: Checkout Bubble Test 01.1
         uses: actions/checkout@v4
         with:
-          ref: ui-demo-01-spatial-panel
+          ref: bubble-test-01.1
 
       - name: Setup Node
         uses: actions/setup-node@v4
