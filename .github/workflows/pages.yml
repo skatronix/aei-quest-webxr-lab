@@ -1,4 +1,4 @@
-name: Deploy Bubble Test 01.1 to GitHub Pages
+name: Deploy AEI Quest WebXR Lab to GitHub Pages
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Bubble Test 01.1
+      - name: Checkout published WebXR branch
         uses: actions/checkout@v4
         with:
           ref: bubble-test-01.1
