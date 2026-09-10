@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>AEI Spatial Neon v0.1</title>
+  <style>
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#050505; font-family:Arial,sans-serif; }
+    canvas { display:block; }
+    #hud {
+      position:fixed; left:16px; top:16px; z-index:5; padding:12px 14px;
+      border:1px solid rgba(255,255,255,.25); border-radius:12px;
+      background:rgba(0,0,0,.55); color:#fff; font-size:14px; line-height:1.35;
+      backdrop-filter: blur(8px); max-width:320px;
+    }
+    #hud b { letter-spacing:.08em; }
+    #status { opacity:.8; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <b>AEI SPATIAL NEON v0.1</b><br>
+    Trigger = add point<br>
+    Grip = undo<br>
+    Thumbstick L/R = neon colour
+    <div id="status">Ready</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/webxr/ARButton.js';
+
+    const statusEl = document.getElementById('status');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 50);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.xr.enabled = true;
+    renderer.setClearColor(0x000000, 0);
+    document.body.appendChild(renderer.domElement);
+
+    document.body.appendChild(ARButton.createButton(renderer, {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['local-floor', 'plane-detection']
+    }));
+
+    const COLORS = [0x00f6ff, 0xff00e5, 0x8b5cff, 0x00ff88, 0xffd400];
+    let colorIndex = 0;
+    let neonColor = new THREE.Color(COLORS[colorIndex]);
+    const points = [];
+    const neonObjects = [];
+    let grid = null;
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+
+    const reticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.025, 0.035, 48).rotateX(-Math.PI/2),
+      new THREE.MeshBasicMaterial({ color: neonColor, transparent: true, opacity: 0.95, depthTest: false, blending: THREE.AdditiveBlending })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    const controller0 = renderer.xr.getController(0);
+    const controller1 = renderer.xr.getController(1);
+    scene.add(controller0, controller1);
+
+    function addRay(controller) {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0,0,0),
+        new THREE.Vector3(0,0,-1)
+      ]);
+      const mat = new THREE.LineBasicMaterial({
+        color: neonColor,
+        transparent:true,
+        opacity:.55,
+        blending:THREE.AdditiveBlending
+      });
+      const ray = new THREE.Line(geo, mat);
+      ray.scale.z = 3;
+      ray.name = 'ray';
+      controller.add(ray);
+    }
+    addRay(controller0);
+    addRay(controller1);
+
+    controller0.addEventListener('select', placePoint);
+    controller1.addEventListener('select', placePoint);
+    controller0.addEventListener('squeeze', undoPoint);
+    controller1.addEventListener('squeeze', undoPoint);
+
+    function placePoint() {
+      if (!reticle.visible) {
+        statusEl.textContent = 'No surface hit — aim at a mapped surface';
+        return;
+      }
+      const p = new THREE.Vector3();
+      p.setFromMatrixPosition(reticle.matrix);
+      points.push(p);
+      rebuildNeon();
+      statusEl.textContent = `${points.length} point${points.length===1?'':'s'} mapped`;
+    }
+
+    function undoPoint() {
+      if (!points.length) return;
+      points.pop();
+      rebuildNeon();
+      statusEl.textContent = `${points.length} points mapped`;
+    }
+
+    function neonMaterial(opacity=1) {
+      return new THREE.MeshBasicMaterial({
+        color: neonColor,
+        transparent: opacity < 1,
+        opacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+    }
+
+    function makeSegment(a, b) {
+      const dir = new THREE.Vector3().subVectors(b, a);
+      const len = dir.length();
+      if (len < 0.002) return null;
+
+      const geo = new THREE.CylinderGeometry(0.006, 0.006, len, 8, 1, true);
+      const mesh = new THREE.Mesh(geo, neonMaterial(.98));
+      mesh.position.copy(a).add(b).multiplyScalar(.5);
+      mesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0,1,0),
+        dir.clone().normalize()
+      );
+
+      const glow = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.018, 0.018, len, 8, 1, true),
+        neonMaterial(.14)
+      );
+      glow.position.copy(mesh.position);
+      glow.quaternion.copy(mesh.quaternion);
+
+      const group = new THREE.Group();
+      group.add(glow, mesh);
+      return group;
+    }
+
+    function addNode(p) {
+      const core = new THREE.Mesh(
+        new THREE.SphereGeometry(0.018, 12, 8),
+        neonMaterial(.95)
+      );
+      core.position.copy(p);
+
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.045, 12, 8),
+        neonMaterial(.12)
+      );
+      glow.position.copy(p);
+
+      const group = new THREE.Group();
+      group.add(glow, core);
+      scene.add(group);
+      neonObjects.push(group);
+    }
+
+    function rebuildNeon() {
+      neonObjects.forEach(o => scene.remove(o));
+      neonObjects.length = 0;
+      if (grid) { scene.remove(grid); grid = null; }
+
+      points.forEach(addNode);
+
+      for (let i=1; i<points.length; i++) {
+        const seg = makeSegment(points[i-1], points[i]);
+        if (seg) {
+          scene.add(seg);
+          neonObjects.push(seg);
+        }
+      }
+
+      if (points.length >= 4) {
+        const close = makeSegment(points[3], points[0]);
+        if (close) {
+          scene.add(close);
+          neonObjects.push(close);
+        }
+        buildFloorGrid(points.slice(0,4));
+      }
+    }
+
+    function buildFloorGrid(floorPts) {
+      const minX = Math.min(...floorPts.map(p=>p.x));
+      const maxX = Math.max(...floorPts.map(p=>p.x));
+      const minZ = Math.min(...floorPts.map(p=>p.z));
+      const maxZ = Math.max(...floorPts.map(p=>p.z));
+      const y = floorPts.reduce((s,p)=>s+p.y,0)/floorPts.length;
+
+      const size = Math.max(maxX-minX, maxZ-minZ, 0.5);
+      const divisions = Math.max(4, Math.min(30, Math.round(size/0.25)));
+
+      grid = new THREE.GridHelper(size, divisions, neonColor, neonColor);
+      grid.material.transparent = true;
+      grid.material.opacity = .28;
+      grid.material.depthWrite = false;
+      grid.material.blending = THREE.AdditiveBlending;
+      grid.position.set((minX+maxX)/2, y+0.005, (minZ+maxZ)/2);
+      scene.add(grid);
+    }
+
+    function setColor(index) {
+      colorIndex = (index + COLORS.length) % COLORS.length;
+      neonColor.setHex(COLORS[colorIndex]);
+      reticle.material.color.copy(neonColor);
+
+      [controller0, controller1].forEach(c=>{
+        const ray = c.getObjectByName('ray');
+        if (ray) ray.material.color.copy(neonColor);
+      });
+
+      rebuildNeon();
+      statusEl.textContent = `Colour ${colorIndex+1}/${COLORS.length}`;
+    }
+
+    const axisLatch = new Map();
+    function pollThumbsticks() {
+      [0,1].forEach(i=>{
+        const src = renderer.xr.getSession()?.inputSources?.[i];
+        const gp = src?.gamepad;
+        if (!gp || gp.axes.length < 2) return;
+
+        const x = gp.axes[2] ?? gp.axes[0] ?? 0;
+        const latched = axisLatch.get(i) || false;
+
+        if (!latched && Math.abs(x) > .75) {
+          setColor(colorIndex + (x > 0 ? 1 : -1));
+          axisLatch.set(i, true);
+        } else if (Math.abs(x) < .35) {
+          axisLatch.set(i, false);
+        }
+      });
+    }
+
+    renderer.xr.addEventListener('sessionend', () => {
+      hitTestSource = null;
+      hitTestSourceRequested = false;
+      reticle.visible = false;
+      statusEl.textContent = 'XR session ended';
+    });
+
+    renderer.setAnimationLoop((timestamp, frame) => {
+      const session = renderer.xr.getSession();
+
+      if (frame && session) {
+        const refSpace = renderer.xr.getReferenceSpace();
+
+        if (!hitTestSourceRequested) {
+          session.requestReferenceSpace('viewer').then(viewerSpace => {
+            session.requestHitTestSource({ space: viewerSpace }).then(source => {
+              hitTestSource = source;
+            });
+          });
+          hitTestSourceRequested = true;
+        }
+
+        if (hitTestSource) {
+          const hits = frame.getHitTestResults(hitTestSource);
+          if (hits.length) {
+            const pose = hits[0].getPose(refSpace);
+            reticle.visible = true;
+            reticle.matrix.fromArray(pose.transform.matrix);
+          } else {
+            reticle.visible = false;
+          }
+        }
+
+        pollThumbsticks();
+      }
+
+      renderer.render(scene, camera);
+    });
+
+    addEventListener('resize', ()=>{
+      camera.aspect = innerWidth/innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    if (navigator.xr) {
+      navigator.xr.isSessionSupported('immersive-ar').then(ok=>{
+        statusEl.textContent = ok ? 'Quest AR ready' : 'immersive-ar not available';
+      });
+    } else {
+      statusEl.textContent = 'WebXR unavailable';
+    }
+  </script>
+</body>
+</html>
