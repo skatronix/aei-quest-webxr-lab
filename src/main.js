@@ -31,18 +31,6 @@ const floor = new THREE.Mesh(
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
-// ---------------------------------------------------------------------------
-// UI Demo 01 — Spatial Panel
-//
-// Teaching goal:
-// 1. World-space panel: UI is ordinary Three.js geometry placed in the XR scene.
-// 2. Controller ray: point at a button and press trigger/select.
-// 3. Hand direct interaction: move index fingertip into a button and pinch.
-// 4. State machine: idle -> hover -> pressed/activated -> idle.
-//
-// This branch deliberately starts from the confirmed Bubble Test 01.1 input path.
-// ---------------------------------------------------------------------------
-
 const COLORS = {
   panel: 0x151a24,
   panelEdge: 0x2b3446,
@@ -66,31 +54,24 @@ function makeTextPlane(text, width, height, options = {}) {
   const texture = new THREE.CanvasTexture(canvasEl);
   texture.colorSpace = THREE.SRGBColorSpace;
 
-  const material = new THREE.MeshBasicMaterial({
-    map: texture,
-    transparent: true,
-    depthWrite: false,
-  });
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
 
   function draw(nextText, subtitle = '') {
     ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
     ctx.fillStyle = options.background || 'rgba(0,0,0,0)';
     if (options.background) ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
-
     ctx.textAlign = options.align || 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = options.color || '#f5f7fb';
     ctx.font = `${options.weight || 700} ${options.fontSize || 54}px system-ui, sans-serif`;
     const x = options.align === 'left' ? 32 : canvasEl.width / 2;
     ctx.fillText(nextText, x, subtitle ? canvasEl.height * 0.40 : canvasEl.height * 0.50);
-
     if (subtitle) {
       ctx.fillStyle = options.subtitleColor || 'rgba(245,247,251,.66)';
       ctx.font = `500 ${options.subtitleSize || 30}px system-ui, sans-serif`;
       ctx.fillText(subtitle, x, canvasEl.height * 0.70);
     }
-
     texture.needsUpdate = true;
   }
 
@@ -105,11 +86,7 @@ scene.add(panel);
 
 const panelBack = new THREE.Mesh(
   new THREE.BoxGeometry(1.28, 0.80, 0.045),
-  new THREE.MeshStandardMaterial({
-    color: COLORS.panel,
-    roughness: 0.72,
-    metalness: 0.0,
-  })
+  new THREE.MeshStandardMaterial({ color: COLORS.panel, roughness: 0.72, metalness: 0.0 })
 );
 panel.add(panelBack);
 
@@ -119,17 +96,14 @@ const panelEdge = new THREE.LineSegments(
 );
 panel.add(panelEdge);
 
-const title = makeTextPlane('AEI SPATIAL UI 01', 1.05, 0.15, {
-  fontSize: 58,
-  weight: 800,
-});
+const title = makeTextPlane('AEI RESOLUME TEST 02', 1.05, 0.15, { fontSize: 52, weight: 800 });
 title.position.set(0, 0.265, 0.026);
 panel.add(title);
 
-const status = makeTextPlane('READY', 1.04, 0.14, {
+const status = makeTextPlane('AIM + TRIGGER', 1.04, 0.14, {
   fontSize: 42,
   weight: 700,
-  subtitle: 'controller ray + hand pinch',
+  subtitle: 'controller ray pops bubbles',
   subtitleSize: 25,
 });
 status.position.set(0, -0.268, 0.027);
@@ -145,32 +119,15 @@ const buttonMeshes = [];
 function createButton(label, x, action) {
   const group = new THREE.Group();
   group.position.x = x;
-
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(0.34, 0.18, 0.075),
-    new THREE.MeshStandardMaterial({
-      color: COLORS.idle,
-      emissive: 0x000000,
-      roughness: 0.48,
-    })
+    new THREE.MeshStandardMaterial({ color: COLORS.idle, emissive: 0x000000, roughness: 0.48 })
   );
   group.add(mesh);
-
-  const labelPlane = makeTextPlane(label, 0.29, 0.095, {
-    fontSize: 56,
-    weight: 800,
-  });
+  const labelPlane = makeTextPlane(label, 0.29, 0.095, { fontSize: 56, weight: 800 });
   labelPlane.position.z = 0.039;
   group.add(labelPlane);
-
-  const button = {
-    label,
-    group,
-    mesh,
-    action,
-    hoverInputs: new Set(),
-    flash: 0,
-  };
+  const button = { label, group, mesh, action, hoverInputs: new Set(), flash: 0 };
   mesh.userData.button = button;
   buttonMeshes.push(mesh);
   buttons.push(button);
@@ -180,19 +137,14 @@ function createButton(label, x, action) {
 
 const demoCube = new THREE.Mesh(
   new THREE.BoxGeometry(0.26, 0.26, 0.26),
-  new THREE.MeshStandardMaterial({
-    color: accentPalette[0],
-    roughness: 0.32,
-    metalness: 0.08,
-  })
+  new THREE.MeshStandardMaterial({ color: accentPalette[0], roughness: 0.32, metalness: 0.08 })
 );
 demoCube.position.set(0, 1.42, -2.05);
 scene.add(demoCube);
 
 createButton('COLOR', -0.39, () => {
   accentIndex = (accentIndex + 1) % accentPalette.length;
-  const accent = accentPalette[accentIndex];
-  demoCube.material.color.setHex(accent);
+  demoCube.material.color.setHex(accentPalette[accentIndex]);
   status.userData.drawText('COLOR CHANGED', `accent ${accentIndex + 1}/${accentPalette.length}`);
 });
 
@@ -204,7 +156,6 @@ createButton('PLAY', 0, () => {
 createButton('RESET', 0.39, () => {
   accentIndex = 0;
   animationEnabled = true;
-  demoCube.visible = true;
   demoCube.material.color.setHex(accentPalette[0]);
   demoCube.rotation.set(0, 0, 0);
   status.userData.drawText('RESET', 'UI state returned to defaults');
@@ -215,13 +166,8 @@ function updateButtonVisual(button, dt) {
   const hovered = button.hoverInputs.size > 0;
   const targetColor = button.flash > 0 ? COLORS.pressed : hovered ? accentPalette[accentIndex] : COLORS.idle;
   button.mesh.material.color.lerp(new THREE.Color(targetColor), THREE.MathUtils.clamp(dt * 14, 0, 1));
-  button.mesh.material.emissive.lerp(
-    new THREE.Color(hovered || button.flash > 0 ? targetColor : 0x000000),
-    THREE.MathUtils.clamp(dt * 10, 0, 1)
-  );
+  button.mesh.material.emissive.lerp(new THREE.Color(hovered || button.flash > 0 ? targetColor : 0x000000), THREE.MathUtils.clamp(dt * 10, 0, 1));
   button.mesh.material.emissiveIntensity = hovered || button.flash > 0 ? 0.22 : 0;
-  const targetZ = button.flash > 0 ? 0.78 : hovered ? 1.08 : 1.0;
-  button.group.scale.z = THREE.MathUtils.lerp(button.group.scale.z, targetZ, THREE.MathUtils.clamp(dt * 18, 0, 1));
 }
 
 function activateButton(button) {
@@ -230,8 +176,86 @@ function activateButton(button) {
   button.action();
 }
 
-// --- XR input: keep the proven Bubble Test 01.1 model ----------------------
+// ---------------------------------------------------------------------------
+// Bubble target field — controller ray + trigger pops bubbles.
+// ---------------------------------------------------------------------------
+const bubbleMeshes = [];
+const bubbles = [];
+const bubbleGeometry = new THREE.SphereGeometry(1, 24, 16);
 
+function resetBubble(bubble) {
+  const radius = THREE.MathUtils.randFloat(0.08, 0.17);
+  bubble.radius = radius;
+  bubble.age = 0;
+  bubble.popping = false;
+  bubble.mesh.visible = true;
+  bubble.mesh.scale.setScalar(radius);
+  bubble.mesh.position.set(
+    THREE.MathUtils.randFloat(-1.25, 1.25),
+    THREE.MathUtils.randFloat(0.65, 2.25),
+    THREE.MathUtils.randFloat(-3.2, -1.65)
+  );
+  bubble.velocity.set(
+    THREE.MathUtils.randFloat(-0.035, 0.035),
+    THREE.MathUtils.randFloat(0.015, 0.05),
+    THREE.MathUtils.randFloat(-0.025, 0.025)
+  );
+  bubble.mesh.material.opacity = THREE.MathUtils.randFloat(0.16, 0.28);
+}
+
+function createBubble() {
+  const material = new THREE.MeshPhysicalMaterial({
+    color: 0xdff8ff,
+    transparent: true,
+    opacity: 0.22,
+    roughness: 0.05,
+    metalness: 0,
+    transmission: 0.25,
+    thickness: 0.02,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(bubbleGeometry, material);
+  const bubble = { mesh, velocity: new THREE.Vector3(), radius: 0.1, popping: false, age: 0 };
+  mesh.userData.bubble = bubble;
+  scene.add(mesh);
+  bubbleMeshes.push(mesh);
+  bubbles.push(bubble);
+  resetBubble(bubble);
+}
+
+for (let i = 0; i < 18; i += 1) createBubble();
+
+function popBubble(bubble) {
+  if (!bubble || bubble.popping || !bubble.mesh.visible) return;
+  bubble.popping = true;
+  bubble.age = 0;
+  status.userData.drawText('POP!', 'trigger ray hit bubble');
+}
+
+function updateBubbles(dt) {
+  for (const bubble of bubbles) {
+    if (bubble.popping) {
+      bubble.age += dt;
+      const t = THREE.MathUtils.clamp(bubble.age / 0.16, 0, 1);
+      bubble.mesh.scale.setScalar(bubble.radius * (1 + t * 0.65));
+      bubble.mesh.material.opacity = 0.24 * (1 - t);
+      if (t >= 1) {
+        resetBubble(bubble);
+        bubble.mesh.position.y = 0.55;
+      }
+      continue;
+    }
+
+    bubble.mesh.position.addScaledVector(bubble.velocity, dt);
+    if (bubble.mesh.position.y > 2.45 || Math.abs(bubble.mesh.position.x) > 1.7 || bubble.mesh.position.z > -1.2 || bubble.mesh.position.z < -3.5) {
+      resetBubble(bubble);
+      bubble.mesh.position.y = 0.55;
+    }
+  }
+}
+
+// --- XR input ---------------------------------------------------------------
 const controllerState = [
   { connected: false, handedness: '—', hand: false },
   { connected: false, handedness: '—', hand: false },
@@ -261,30 +285,43 @@ function setHover(index, button) {
   if (button) button.hoverInputs.add(index);
 }
 
+function setControllerRay(controller) {
+  controller.getWorldPosition(rayOrigin);
+  controller.getWorldQuaternion(rayQuaternion);
+  rayDirection.set(0, 0, -1).applyQuaternion(rayQuaternion).normalize();
+  raycaster.set(rayOrigin, rayDirection);
+  raycaster.near = 0.02;
+  raycaster.far = 6.0;
+}
+
+function controllerBubbleHit(controller) {
+  setControllerRay(controller);
+  const hit = raycaster.intersectObjects(bubbleMeshes.filter((mesh) => mesh.visible && !mesh.userData.bubble?.popping), false)[0];
+  return hit?.object?.userData?.bubble || null;
+}
+
+function controllerButtonHit(controller) {
+  setControllerRay(controller);
+  const hit = raycaster.intersectObjects(buttonMeshes, false)[0];
+  return hit?.object?.userData?.button || null;
+}
+
 function makeInput(index) {
   const controller = renderer.xr.getController(index);
 
   const marker = new THREE.Mesh(
     new THREE.SphereGeometry(0.024, 14, 10),
-    new THREE.MeshBasicMaterial({
-      color: index === 0 ? COLORS.cyan : COLORS.pink,
-      transparent: true,
-      opacity: 0.88,
-      depthTest: false,
-    })
+    new THREE.MeshBasicMaterial({ color: index === 0 ? COLORS.cyan : COLORS.pink, transparent: true, opacity: 0.88, depthTest: false })
   );
   marker.visible = false;
   marker.renderOrder = 200;
   scene.add(marker);
 
   const ray = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(0, 0, -1),
-    ]),
-    new THREE.LineBasicMaterial({ color: COLORS.white, transparent: true, opacity: 0.45 })
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
+    new THREE.LineBasicMaterial({ color: COLORS.white, transparent: true, opacity: 0.6 })
   );
-  ray.scale.z = 1.8;
+  ray.scale.z = 6.0;
   controller.add(ray);
 
   controller.addEventListener('connected', (event) => {
@@ -306,9 +343,17 @@ function makeInput(index) {
   });
 
   controller.addEventListener('selectstart', () => {
-    if (controllerState[index].connected && !controllerState[index].hand) {
-      activateButton(hoveredByInput[index]);
+    if (!controllerState[index].connected || controllerState[index].hand) return;
+
+    // Bubble gets priority. Aim controller ray at a bubble and press index trigger.
+    const bubble = controllerBubbleHit(controller);
+    if (bubble) {
+      popBubble(bubble);
+      return;
     }
+
+    // Preserve the existing UI interaction when no bubble is targeted.
+    activateButton(hoveredByInput[index]);
   });
 
   scene.add(controller);
@@ -356,16 +401,6 @@ function directHandHit(point) {
   return null;
 }
 
-function controllerRayHit(controller) {
-  controller.getWorldPosition(rayOrigin);
-  controller.getWorldQuaternion(rayQuaternion);
-  rayDirection.set(0, 0, -1).applyQuaternion(rayQuaternion).normalize();
-  raycaster.set(rayOrigin, rayDirection);
-  raycaster.far = 3.0;
-  const hit = raycaster.intersectObjects(buttonMeshes, false)[0];
-  return hit?.object?.userData?.button || null;
-}
-
 function updateXRInput(frame) {
   for (let i = 0; i < inputs.length; i += 1) {
     if (!controllerState[i].connected) {
@@ -383,14 +418,11 @@ function updateXRInput(frame) {
         setHover(i, null);
         continue;
       }
-
       inputMarkers[i].visible = true;
       inputMarkers[i].position.copy(inputPos[i]);
       inputRays[i].visible = false;
-
       const hovered = directHandHit(inputPos[i]);
       setHover(i, hovered);
-
       const pinching = getHandPinch(source, frame, inputPos[i]);
       inputMarkers[i].scale.setScalar(pinching ? 1.55 : 1.0);
       if (pinching && !previousPinch[i] && hovered) activateButton(hovered);
@@ -401,31 +433,25 @@ function updateXRInput(frame) {
       inputMarkers[i].position.copy(inputPos[i]);
       inputMarkers[i].scale.setScalar(1.0);
       inputRays[i].visible = true;
-      setHover(i, controllerRayHit(inputs[i]));
+      setHover(i, controllerButtonHit(inputs[i]));
       previousPinch[i] = false;
     }
   }
 }
 
-// --- XR session -------------------------------------------------------------
-
 async function startXR(mode) {
   if (!navigator.xr || session) return;
   const isAR = mode === 'immersive-ar';
-
   try {
     session = await navigator.xr.requestSession(mode, {
       requiredFeatures: ['local-floor'],
       optionalFeatures: ['bounded-floor', 'hand-tracking'],
     });
-
     currentMode = isAR ? 'MR / AR' : 'VR';
     document.body.classList.add('xr-active');
     scene.background = isAR ? null : VR_BACKGROUND.clone();
     floor.visible = !isAR;
-
     await renderer.xr.setSession(session);
-
     session.addEventListener('end', () => {
       session = null;
       currentMode = 'screen';
@@ -448,12 +474,10 @@ async function detectSupport() {
     supportEl.textContent = 'WebXR unavailable here. Open the HTTPS page in Quest Browser.';
     return;
   }
-
   const [vrSupported, arSupported] = await Promise.all([
     navigator.xr.isSessionSupported('immersive-vr').catch(() => false),
     navigator.xr.isSessionSupported('immersive-ar').catch(() => false),
   ]);
-
   vrButton.disabled = !vrSupported;
   arButton.disabled = !arSupported;
   supportEl.textContent = `WebXR: VR ${vrSupported ? 'YES' : 'NO'} / MR-AR ${arSupported ? 'YES' : 'NO'}`;
@@ -461,23 +485,19 @@ async function detectSupport() {
 
 let lastFrameTime = 0;
 renderer.setAnimationLoop((time, frame) => {
-  const dt = lastFrameTime > 0
-    ? THREE.MathUtils.clamp((time - lastFrameTime) / 1000, 0.001, 0.04)
-    : 1 / 72;
+  const dt = lastFrameTime > 0 ? THREE.MathUtils.clamp((time - lastFrameTime) / 1000, 0.001, 0.04) : 1 / 72;
   lastFrameTime = time;
 
   if (renderer.xr.isPresenting && frame) updateXRInput(frame);
-
   for (const button of buttons) updateButtonVisual(button, dt);
+  updateBubbles(dt);
 
   if (animationEnabled) {
     demoCube.rotation.x += dt * 0.42;
     demoCube.rotation.y += dt * 0.68;
   }
-
   const seconds = time * 0.001;
   demoCube.position.y = 1.42 + Math.sin(seconds * 1.25) * 0.045;
-
   renderer.render(scene, camera);
 });
 
