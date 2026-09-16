@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>AEI Surface Walker XR 0.1</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050505;font-family:Arial,sans-serif}canvas{display:block}#hud{position:fixed;left:16px;top:16px;z-index:5;padding:12px 14px;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(0,0,0,.5);color:#fff;font-size:14px;line-height:1.4;backdrop-filter:blur(8px)}#status{margin-top:6px;color:#9ff}
+</style>
+</head>
+<body>
+<div id="hud"><b>AEI SURFACE WALKER XR 0.1</b><br>6 walkers / cube surface<br>Trigger = reposition cube<br>Grip = reset walkers<div id="status">Ready</div></div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js';
+import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/webxr/ARButton.js';
+
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,50);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,premultipliedAlpha:false});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.xr.enabled=true;renderer.setClearColor(0x000000,0);document.body.appendChild(renderer.domElement);
+document.body.appendChild(ARButton.createButton(renderer,{requiredFeatures:['hit-test'],optionalFeatures:['local-floor']}));
+
+const root=new THREE.Group();scene.add(root);
+const statusEl=document.getElementById('status');
+const cubeSize=1.6, half=cubeSize/2, step=.08, trim=100;
+let hitSource=null,hitRequested=false;
+
+const edges=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(cubeSize,cubeSize,cubeSize)),new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.25}));
+root.add(edges);
+
+const faceDefs=[
+ {axis:'x',sign:1,uv:['y','z']},{axis:'z',sign:-1,uv:['x','y']},{axis:'x',sign:-1,uv:['y','z']},
+ {axis:'z',sign:1,uv:['x','y']},{axis:'y',sign:1,uv:['x','z']},{axis:'y',sign:-1,uv:['x','z']}
+];
+
+function clamp(v){return Math.max(-half,Math.min(half,v));}
+function snap(v){return Math.round(v/step)*step;}
+function key(p){return `${Math.round(p.x/step)},${Math.round(p.y/step)},${Math.round(p.z/step)}`;}
+const claims=new Set();
+
+class Walker{
+ constructor(face,color){this.face=face;this.color=color;this.path=[];this.pos=this.randomOnFace();this.dir=this.randomDir();this.line=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color,transparent:true,opacity:.9,blending:THREE.AdditiveBlending}));root.add(this.line);this.path.push(this.pos.clone());}
+ randomOnFace(){const f=faceDefs[this.face];const p=new THREE.Vector3((Math.random()-.5)*cubeSize,(Math.random()-.5)*cubeSize,(Math.random()-.5)*cubeSize);p[f.axis]=f.sign*half;p.x=snap(p.x);p.y=snap(p.y);p.z=snap(p.z);return p;}
+ randomDir(){const f=faceDefs[this.face];const axes=f.uv;const a=axes[Math.random()>.5?0:1];const d=new THREE.Vector3();d[a]=(Math.random()>.5?1:-1)*step;return d;}
+ move(){let n=this.pos.clone().add(this.dir);const f=faceDefs[this.face];
+   let crossed=null;
+   for(const a of ['x','y','z']){if(a===f.axis)continue;if(n[a]>half){n[a]=half;crossed={axis:a,sign:1};break;}if(n[a]<-half){n[a]=-half;crossed={axis:a,sign:-1};break;}}
+   if(crossed){const target=faceDefs.findIndex(fd=>fd.axis===crossed.axis&&fd.sign===crossed.sign);if(target>=0){this.face=target;const nf=faceDefs[this.face];n[nf.axis]=nf.sign*half;const tangentAxes=nf.uv;const currentMag=this.dir.length();this.dir.set(0,0,0);const choose=tangentAxes[Math.random()>.5?0:1];this.dir[choose]=(Math.random()>.5?1:-1)*currentMag;}}
+   n.x=snap(clamp(n.x));n.y=snap(clamp(n.y));n.z=snap(clamp(n.z));
+   const k=key(n);
+   if(claims.has(k)||Math.random()<.12){this.dir=this.randomDir();return;}
+   claims.add(k);this.pos.copy(n);this.path.push(this.pos.clone());if(this.path.length>trim)this.path.shift();
+   if(Math.random()<.18)this.dir=this.randomDir();this.updateLine();}
+ updateLine(){this.line.geometry.dispose();this.line.geometry=new THREE.BufferGeometry().setFromPoints(this.path);}
+ reset(){root.remove(this.line);}
+}
+
+const palette=[0x00f6ff,0xff00e5,0x8b5cff,0x00ff88,0xffd400,0xff7a00];
+let walkers=[];
+function resetWalkers(){walkers.forEach(w=>w.reset());walkers=[];claims.clear();for(let i=0;i<6;i++)walkers.push(new Walker(i,palette[i]));statusEl.textContent='Walkers reset';}
+resetWalkers();
+
+const controller=renderer.xr.getController(0);scene.add(controller);
+controller.addEventListener('select',()=>{const p=new THREE.Vector3(0,0,-1.8).applyMatrix4(controller.matrixWorld);root.position.copy(p);statusEl.textContent='Cube repositioned';});
+controller.addEventListener('squeeze',resetWalkers);
+
+const reticle=new THREE.Mesh(new THREE.RingGeometry(.025,.035,32).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.8}));reticle.matrixAutoUpdate=false;reticle.visible=false;scene.add(reticle);
+
+renderer.setAnimationLoop((time,frame)=>{
+  if(Math.floor(time/80)!==Math.floor((time-16)/80))walkers.forEach(w=>w.move());
+  root.rotation.y=Math.sin(time*.0002)*.18;
+  const session=renderer.xr.getSession();
+  if(frame&&session){const ref=renderer.xr.getReferenceSpace();if(!hitRequested){session.requestReferenceSpace('viewer').then(v=>session.requestHitTestSource({space:v}).then(s=>hitSource=s));hitRequested=true;}if(hitSource){const hits=frame.getHitTestResults(hitSource);if(hits.length){const pose=hits[0].getPose(ref);reticle.visible=true;reticle.matrix.fromArray(pose.transform.matrix);}else reticle.visible=false;}}
+  renderer.render(scene,camera);
+});
+
+renderer.xr.addEventListener('sessionend',()=>{hitSource=null;hitRequested=false;reticle.visible=false;});
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+if(navigator.xr)navigator.xr.isSessionSupported('immersive-ar').then(ok=>statusEl.textContent=ok?'Quest AR ready':'immersive-ar unavailable');
+</script>
+</body>
+</html>
