@@ -18,22 +18,69 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout published WebXR branch
+      - name: Checkout publisher branch
         uses: actions/checkout@v4
         with:
           ref: bubble-test-01.1
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install
-        run: npm install
+      - name: Fetch all experiment branches
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Build
-        run: npm run build
+      - name: Build publisher, launcher and all experiment branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$GITHUB_WORKSPACE"
+          SITE="$ROOT/site"
+          rm -rf "$SITE"
+          mkdir -p "$SITE"
+
+          # Bubble Test 01.1 used to own the root. Build it separately first.
+          cp index.html /tmp/aei-launcher-index.html
+          cp bubble-test-01-1-entry.html index.html
+          npm install --no-audit --no-fund
+          npm run build -- --base=/aei-quest-webxr-lab/bubble-test-01-1/ --outDir dist-bubble-01-1
+          mkdir -p "$SITE/bubble-test-01-1"
+          cp -a dist-bubble-01-1/. "$SITE/bubble-test-01-1/"
+
+          # Restore launcher and build root + static public experiments.
+          cp /tmp/aei-launcher-index.html index.html
+          npm run build -- --base=/aei-quest-webxr-lab/ --outDir dist-launcher
+          cp -a dist-launcher/. "$SITE/"
+
+          build_branch() {
+            local branch="$1"
+            local slug="$2"
+            local wt="/tmp/aei-${slug}"
+            rm -rf "$wt"
+            git worktree add --detach "$wt" "origin/$branch"
+            pushd "$wt" >/dev/null
+            npm install --no-audit --no-fund
+            npm run build -- --base="/aei-quest-webxr-lab/${slug}/" --outDir dist-live
+            mkdir -p "$SITE/$slug"
+            cp -a dist-live/. "$SITE/$slug/"
+            popd >/dev/null
+            git worktree remove "$wt" --force
+          }
+
+          build_branch bubble-test-01 bubble-test-01
+          build_branch bubble-test-01.2-epi-visual bubble-test-01-2-epi
+          build_branch demo-01.1-spatial-input spatial-input-01-1
+          build_branch ui-demo-01-spatial-panel spatial-panel
+          build_branch control-demo-01-xr-osc-fader xr-osc-fader
+          build_branch orbital-node-test-01 orbital-node-01
+          build_branch orbital-node-test-01.1-input-fix orbital-node-01-1
+          build_branch orbital-sphere-network-01 orbital-sphere-network
+          build_branch resolume-test-02-spectator-output resolume-spectator
+
+          echo "Published paths:"
+          find "$SITE" -maxdepth 2 -type f -name index.html -print | sort
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -41,7 +88,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: ./site
 
   deploy:
     environment:
