@@ -1,39 +1,36 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#050505" />
-    <meta
-      name="description"
-      content="AEI Quest WebXR Lab — Bubble Test 01.1 for Meta Quest 2."
-    />
-    <title>AEI Quest WebXR Lab — Bubble Test 01.1</title>
-  </head>
-  <body>
-    <main id="app">
-      <section class="panel">
-        <p class="eyebrow">AEI XR / MR LAB</p>
-        <h1>Quest Bubble Test 01.1</h1>
-        <p>
-          Deformable soap-bubble interaction test. Slow contact bends and moves the membrane;
-          a fast direct poke pops it. Fast sideways swipes should not pop as easily.
-          No Meta SDK, analytics or application telemetry.
-        </p>
-
-        <div id="support" class="status">Checking WebXR support…</div>
-
-        <div class="actions">
-          <button id="enter-vr" disabled>ENTER VR</button>
-          <button id="enter-ar" disabled>ENTER MR / AR</button>
-        </div>
-
-        <p class="hint">
-          Quest 2: test MR/AR with hands first. HUD now shows FPS and directional impact speed for tuning.
-        </p>
-      </section>
-    </main>
-    <canvas id="xr-canvas"></canvas>
-    <script type="module" src="/src/main.js"></script>
-  </body>
-</html>
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<meta name="theme-color" content="#05060a" />
+<meta name="description" content="AEI XR LAB — WebXR experiments for spatial interaction on Meta Quest." />
+<title>AEI XR LAB — Experiments</title>
+<style>
+:root{font-family:Inter,Arial,sans-serif;color:#f4f7fb;background:#05060a;color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 20% 0%,rgba(0,246,255,.10),transparent 34%),radial-gradient(circle at 90% 10%,rgba(255,0,229,.09),transparent 30%),#05060a}.wrap{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:42px 0 72px}.eyebrow{font-size:.72rem;letter-spacing:.22em;color:#77f6ff;text-transform:uppercase;margin:0 0 10px}h1{font-size:clamp(2.4rem,7vw,5.8rem);line-height:.9;margin:0;font-weight:800;letter-spacing:-.055em}.lead{max-width:760px;color:#9da8b8;font-size:1rem;line-height:1.6;margin:20px 0 28px}.meta{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:34px}.pill{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;border:1px solid #28313d;border-radius:999px;padding:8px 11px;color:#9fabba;background:#0b0e14}.pill.live{color:#8effcc;border-color:#165c46}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.card{position:relative;min-height:220px;display:flex;flex-direction:column;text-decoration:none;color:inherit;border:1px solid #202731;border-radius:18px;padding:20px;background:linear-gradient(160deg,rgba(17,21,29,.94),rgba(7,9,13,.97));transition:.15s transform,.15s border-color,.15s background;overflow:hidden}.card.live:hover,.card.live:focus{transform:translateY(-3px);border-color:#5af3ff;background:linear-gradient(160deg,rgba(16,30,37,.96),rgba(7,9,13,.98));outline:none}.card.dev{opacity:.72}.num{font-size:.68rem;letter-spacing:.15em;color:#647184;text-transform:uppercase}.card h2{font-size:1.28rem;line-height:1.05;margin:32px 0 10px}.card p{font-size:.84rem;line-height:1.5;color:#919dad;margin:0 0 22px}.foot{margin-top:auto;display:flex;justify-content:space-between;align-items:center;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase}.go{color:#77f6ff}.dev .go{color:#697484}.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:7px;background:#697484}.live .dot{background:#55f6b0;box-shadow:0 0 12px rgba(85,246,176,.65)}.section{margin:42px 0 14px;color:#657184;font-size:.72rem;letter-spacing:.18em;text-transform:uppercase}footer{margin-top:44px;color:#596474;font-size:.75rem;line-height:1.6;border-top:1px solid #171c24;padding-top:20px}@media(max-width:620px){.wrap{width:min(100% - 20px,1180px);padding-top:26px}.grid{grid-template-columns:1fr}.card{min-height:190px}}
+</style>
+</head>
+<body><main class="wrap">
+<p class="eyebrow">Artturi Elovirta Innovation / AEI</p><h1>XR LAB</h1>
+<p class="lead">WebXR experiments for spatial interaction, generative systems, mapping and audiovisual control. Choose a live experience below. Exit XR to return here and select another experiment.</p>
+<div class="meta"><span class="pill live">● 4 live experiences</span><span class="pill">13 experiment branches</span><span class="pill">Quest 2 / WebXR</span><span class="pill">Privacy-first</span></div>
+<div class="section">Live now</div><section class="grid">
+<a class="card live" href="./spatial-neon/"><span class="num">01 / Spatial Mapping</span><h2>Spatial Neon v0.1</h2><p>Place neon anchor points in passthrough space and build a luminous spatial outline.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card live" href="./spatial-neon-v02/"><span class="num">02 / Manipulation</span><h2>Spatial Neon v0.2</h2><p>Grab and move neon corner handles with Touch controllers or hand pinch interaction.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card live" href="./neural-horizon/"><span class="num">03 / Generative Network</span><h2>Neural Horizon XR</h2><p>Animated blue node network, warm mirrored counterpart and luminous horizon in passthrough.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card live" href="./surface-walker/"><span class="num">04 / Generative Geometry</span><h2>Surface Walker XR</h2><p>Six grid-snapped walkers travel across cube faces, turn at edges and leave evolving trails.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+</section>
+<div class="section">Development archive</div><section class="grid">
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/bubble-test-01"><span class="num">05 / Interaction</span><h2>Bubble Test 01</h2><p>First Quest bubble interaction experiment.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/bubble-test-01.1"><span class="num">06 / Interaction</span><h2>Bubble Test 01.1</h2><p>Deformable soap-bubble interaction and hand/controller tuning.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/bubble-test-01.2-epi-visual"><span class="num">07 / Visual</span><h2>Bubble Test 01.2 — EPI</h2><p>Visual continuation of the bubble experiment.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/demo-01.1-spatial-input"><span class="num">08 / Input</span><h2>Spatial Input 01.1</h2><p>Controller and hand-tracking input foundation for spatial experiments.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/ui-demo-01-spatial-panel"><span class="num">09 / UI</span><h2>Spatial Panel</h2><p>XR panel interaction using controller ray, trigger, fingertip hover and pinch.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/control-demo-01-xr-osc-fader"><span class="num">10 / AV Control</span><h2>XR OSC Fader</h2><p>Spatial control surface concept for sending XR interaction toward OSC systems.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/orbital-node-test-01"><span class="num">11 / Network</span><h2>Orbital Node Test</h2><p>3D orbital node structure and spatial relationship study.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/orbital-node-test-01.1-input-fix"><span class="num">12 / Network</span><h2>Orbital Node Input Fix</h2><p>Interaction-corrected continuation of the orbital node test.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/orbital-sphere-network-01"><span class="num">13 / Network</span><h2>Orbital Sphere Network</h2><p>Spherical node-network study for immersive spatial systems.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+<a class="card dev" href="https://github.com/skatronix/aei-quest-webxr-lab/tree/resolume-test-02-spectator-output"><span class="num">14 / AV Output</span><h2>Resolume Spectator Output</h2><p>Experiment connecting the XR scene with an external Resolume-facing output.</p><div class="foot"><span><i class="dot"></i>Branch</span><span class="go">Source →</span></div></a>
+</section>
+<footer>AEI XR LAB · WebXR experiments · Meta Quest 2 · Browser-first architecture. Live cards launch directly; development cards currently open their preserved GitHub branch.</footer>
+</main></body></html>
