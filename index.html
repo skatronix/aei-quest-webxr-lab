@@ -1,38 +1,16 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#050505" />
-    <meta
-      name="description"
-      content="AEI Quest WebXR Lab — Bubble Test 01 for Meta Quest 2."
-    />
-    <title>AEI Quest WebXR Lab — Bubble Test 01</title>
-  </head>
-  <body>
-    <main id="app">
-      <section class="panel">
-        <p class="eyebrow">AEI XR / MR LAB</p>
-        <h1>Quest Bubble Test 01</h1>
-        <p>
-          Lightweight soap-bubble interaction test. Slow hand contact pushes bubbles;
-          fast pokes pop them. No Meta SDK, analytics or application telemetry.
-        </p>
-
-        <div id="support" class="status">Checking WebXR support…</div>
-
-        <div class="actions">
-          <button id="enter-vr" disabled>ENTER VR</button>
-          <button id="enter-ar" disabled>ENTER MR / AR</button>
-        </div>
-
-        <p class="hint">
-          Quest 2: test both controller input and hand tracking. Bubble physics are intentionally conservative for the first tuning pass.
-        </p>
-      </section>
-    </main>
-    <canvas id="xr-canvas"></canvas>
-    <script type="module" src="/src/main.js"></script>
-  </body>
-</html>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/><meta name="theme-color" content="#05060a"/><title>AEI XR LAB — Experiments</title><style>:root{font-family:Inter,Arial,sans-serif;color:#f4f7fb;background:#05060a;color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#05060a}.wrap{width:min(1180px,calc(100% - 32px));margin:auto;padding:40px 0 70px}.eyebrow{font-size:.72rem;letter-spacing:.22em;color:#77f6ff;text-transform:uppercase}h1{font-size:clamp(2.5rem,7vw,5.8rem);margin:.1em 0;line-height:.9}.lead{max-width:760px;color:#9da8b8;line-height:1.6}.meta{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0 32px}.pill{border:1px solid #28313d;border-radius:999px;padding:8px 11px;font-size:.72rem;color:#9fabba}.pill.live{color:#8effcc;border-color:#165c46}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.card{min-height:210px;display:flex;flex-direction:column;text-decoration:none;color:inherit;border:1px solid #202731;border-radius:18px;padding:20px;background:linear-gradient(160deg,#11151d,#07090d)}.card:hover,.card:focus{border-color:#5af3ff;outline:none}.num{font-size:.68rem;letter-spacing:.15em;color:#647184;text-transform:uppercase}.card h2{font-size:1.22rem;margin:30px 0 10px}.card p{font-size:.84rem;line-height:1.5;color:#919dad;margin:0 0 20px}.foot{margin-top:auto;display:flex;justify-content:space-between;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase}.go{color:#77f6ff}.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:7px;background:#55f6b0}.section{margin:38px 0 14px;color:#657184;font-size:.72rem;letter-spacing:.18em;text-transform:uppercase}footer{margin-top:40px;color:#596474;font-size:.75rem;border-top:1px solid #171c24;padding-top:18px}@media(max-width:620px){.wrap{width:calc(100% - 20px);padding-top:24px}.grid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><p class="eyebrow">Artturi Elovirta Innovation / AEI</p><h1>XR LAB</h1><p class="lead">WebXR experiments for spatial interaction, generative systems, mapping and audiovisual control. Every preserved experiment below now has a live Pages build.</p><div class="meta"><span class="pill live">● 14 live experiences</span><span class="pill">Quest 2 / WebXR</span><span class="pill">Privacy-first</span></div><div class="section">Live experiments</div><section class="grid">
+<a class="card" href="./spatial-neon/"><span class="num">01 · Spatial Mapping</span><h2>Spatial Neon v0.1</h2><p>Place neon anchor points in passthrough space.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./spatial-neon-v02/"><span class="num">02 · Manipulation</span><h2>Spatial Neon v0.2</h2><p>Grab and move neon corners with controllers or hand pinch.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./neural-horizon/"><span class="num">03 · Generative Network</span><h2>Neural Horizon XR</h2><p>Animated node network with mirrored warm counterpart.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./surface-walker/"><span class="num">04 · Generative Geometry</span><h2>Surface Walker XR</h2><p>Grid-snapped walkers travel across cube faces.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./bubble-test-01/"><span class="num">05 · Interaction</span><h2>Bubble Test 01</h2><p>First Quest bubble interaction experiment.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./bubble-test-01-1/"><span class="num">06 · Interaction</span><h2>Bubble Test 01.1</h2><p>Deformable bubble with hand/controller tuning.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./bubble-test-01-2-epi/"><span class="num">07 · Visual</span><h2>Bubble Test 01.2 — EPI</h2><p>Visual continuation of the bubble experiment.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./spatial-input-01-1/"><span class="num">08 · Input</span><h2>Spatial Input 01.1</h2><p>Controller and hand-tracking input foundation.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./spatial-panel/"><span class="num">09 · UI</span><h2>Spatial Panel</h2><p>XR panel using ray, trigger, fingertip hover and pinch.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./xr-osc-fader/"><span class="num">10 · AV Control</span><h2>XR OSC Fader</h2><p>Spatial control surface for OSC-oriented systems.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./orbital-node-01/"><span class="num">11 · Network</span><h2>Orbital Node Test</h2><p>3D orbital node structure and relationship study.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./orbital-node-01-1/"><span class="num">12 · Network</span><h2>Orbital Node Input Fix</h2><p>Interaction-corrected orbital node iteration.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./orbital-sphere-network/"><span class="num">13 · Network</span><h2>Orbital Sphere Network</h2><p>Spherical node-network immersive study.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+<a class="card" href="./resolume-spectator/"><span class="num">14 · AV Output</span><h2>Resolume Spectator Output</h2><p>XR scene with external Resolume-facing output workflow.</p><div class="foot"><span><i class="dot"></i>Live</span><span class="go">Enter →</span></div></a>
+</section><footer>AEI XR LAB · Meta Quest 2 · Browser-first WebXR experiments.</footer></main></body></html>
