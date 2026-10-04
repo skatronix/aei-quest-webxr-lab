@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AEI Moverio Control</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <p class="eyebrow">AEI MOVERIO LAB</p>
+    <h1>Termux Bridge 01</h1>
+    <p class="lead">Samsung A32 local control surface for the future Epson Moverio BT-350 visualization client.</p>
+
+    <section class="status">
+      <span id="dot"></span>
+      <strong id="connection">CONNECTING</strong>
+    </section>
+
+    <section class="panel">
+      <label>
+        Mode
+        <select id="mode">
+          <option>NETWORK</option>
+          <option>ORBITAL</option>
+          <option>GRID</option>
+          <option>HYBRID</option>
+        </select>
+      </label>
+
+      <label>
+        Node density <output id="nodeDensityValue">24</output>
+        <input id="nodeDensity" type="range" min="4" max="30" step="1" value="24">
+      </label>
+
+      <label>
+        Connection radius <output id="connectionRadiusValue">0.75</output>
+        <input id="connectionRadius" type="range" min="0.10" max="2.00" step="0.05" value="0.75">
+      </label>
+
+      <label>
+        Movement speed <output id="movementSpeedValue">1.00</output>
+        <input id="movementSpeed" type="range" min="0" max="3" step="0.05" value="1">
+      </label>
+
+      <label>
+        Color
+        <select id="color">
+          <option value="cyan">CYAN</option>
+          <option value="amber">AMBER</option>
+          <option value="magenta">MAGENTA</option>
+          <option value="white">WHITE</option>
+        </select>
+      </label>
+
+      <div class="actions">
+        <button id="freeze" type="button">FREEZE</button>
+        <button id="reset" type="button">RESET</button>
+      </div>
+    </section>
+
+    <pre id="debug">Waiting for state…</pre>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
