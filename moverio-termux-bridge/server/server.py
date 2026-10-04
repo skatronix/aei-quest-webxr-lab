@@ -89,6 +89,10 @@ async def index(_request):
     return web.FileResponse(WEB_DIR / "index.html")
 
 
+async def moverio(_request):
+    return web.FileResponse(WEB_DIR / "moverio.html")
+
+
 async def state_endpoint(_request):
     return web.json_response(state_message())
 
@@ -143,6 +147,8 @@ async def websocket(request):
 
 app = web.Application()
 app.router.add_get("/", index)
+app.router.add_get("/moverio", moverio)
+app.router.add_get("/moverio/", moverio)
 app.router.add_get("/api/state", state_endpoint)
 app.router.add_get("/ws", websocket)
 app.router.add_static("/static/", WEB_DIR, show_index=False)
