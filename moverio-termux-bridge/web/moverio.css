@@ -1,0 +1,69 @@
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+  color: #dffcff;
+  font-family: Arial, sans-serif;
+}
+
+#scene {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+#hud {
+  position: fixed;
+  top: 16px;
+  left: 18px;
+  width: 205px;
+  padding: 10px 12px;
+  color: rgba(220, 252, 255, 0.92);
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+  text-shadow: 0 0 6px rgba(90, 230, 255, 0.45);
+}
+
+.title {
+  letter-spacing: 0.18em;
+  color: #79f3ff;
+  margin-bottom: 3px;
+}
+
+.subtitle {
+  color: rgba(255,255,255,0.65);
+  margin-bottom: 10px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.row span {
+  color: rgba(255,255,255,0.45);
+}
+
+.row strong {
+  font-weight: normal;
+  color: #e8fdff;
+}
+
+#reticle {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  margin-top: -5px;
+  border: 1px solid rgba(150, 245, 255, 0.42);
+  border-radius: 50%;
+  box-sizing: border-box;
+  pointer-events: none;
+}
