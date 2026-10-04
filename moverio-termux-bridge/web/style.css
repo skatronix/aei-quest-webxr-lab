@@ -1,0 +1,104 @@
+:root {
+  color-scheme: dark;
+  font-family: Arial, sans-serif;
+  background: #05070a;
+  color: #f3f7fb;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #05070a;
+}
+
+main {
+  width: min(720px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: 28px 0 48px;
+}
+
+.eyebrow {
+  color: #74f4ff;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+}
+
+h1 {
+  margin: 6px 0 8px;
+  font-size: 34px;
+}
+
+.lead {
+  color: #9ba8b6;
+  line-height: 1.5;
+}
+
+.status, .panel, pre {
+  border: 1px solid #28313b;
+  border-radius: 14px;
+  background: #0b1016;
+}
+
+.status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  margin: 22px 0 12px;
+}
+
+#dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #59636d;
+}
+
+#dot.on {
+  background: #69ffc2;
+}
+
+.panel {
+  padding: 16px;
+}
+
+label {
+  display: block;
+  margin: 0 0 20px;
+  color: #c9d2db;
+}
+
+select, input[type="range"], button {
+  width: 100%;
+  margin-top: 8px;
+  min-height: 44px;
+}
+
+select, button {
+  border: 1px solid #34414e;
+  border-radius: 10px;
+  background: #111922;
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 16px;
+}
+
+output {
+  float: right;
+  color: #74f4ff;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+pre {
+  white-space: pre-wrap;
+  color: #82909f;
+  padding: 14px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
