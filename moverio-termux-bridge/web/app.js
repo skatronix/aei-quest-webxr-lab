@@ -15,6 +15,7 @@
     color: document.getElementById("color"),
     opticalPreset: document.getElementById("opticalPreset"),
     sensorToggle: document.getElementById("sensorToggle"),
+    sensorCalibrate: document.getElementById("sensorCalibrate"),
     sensorStatus: document.getElementById("sensorStatus"),
     yawValue: document.getElementById("yawValue"),
     pitchValue: document.getElementById("pitchValue"),
@@ -27,6 +28,31 @@
   var currentFrozen = false;
   var sensorActive = false;
   var lastSensorSend = 0;
+  var neutral = null;
+  var smooth = { yaw: 0, pitch: 0, roll: 0 };
+  var latestRaw = { alpha: 0, beta: 0, gamma: 0 };
+
+  function shortestAngle(current, base) {
+    var d = normalizeAngle(current - base);
+    return d;
+  }
+
+  function lowPass(previous, next, amount) {
+    return previous + (next - previous) * amount;
+  }
+
+  function calibrateNeutral() {
+    neutral = {
+      alpha: latestRaw.alpha,
+      beta: latestRaw.beta,
+      gamma: latestRaw.gamma
+    };
+    smooth.yaw = 0;
+    smooth.pitch = 0;
+    smooth.roll = 0;
+    ui.sensorStatus.textContent = sensorActive ? "CALIBRATED" : "READY";
+    send({ type: "sensor", enabled: sensorActive, yaw: 0, pitch: 0, roll: 0 });
+  }
 
   function normalizeAngle(value) {
     var n = Number(value || 0);
@@ -55,16 +81,47 @@
 
   function onOrientation(event) {
     if (!sensorActive) return;
-    var yaw = normalizeAngle(event.alpha);
-    var pitch = Math.max(-90, Math.min(90, Number(event.beta || 0)));
-    var roll = normalizeAngle(event.gamma);
-    sendSensor(yaw, pitch, roll);
+
+    latestRaw.alpha = Number(event.alpha || 0);
+    latestRaw.beta = Number(event.beta || 0);
+    latestRaw.gamma = Number(event.gamma || 0);
+
+    if (!neutral) {
+      calibrateNeutral();
+      return;
+    }
+
+    // Phone-first control mapping:
+    // alpha  -> left/right heading around neutral
+    // beta   -> forward/back tilt around neutral
+    // gamma  -> side tilt around neutral
+    var yaw = shortestAngle(latestRaw.alpha, neutral.alpha);
+    var pitch = latestRaw.beta - neutral.beta;
+    var roll = latestRaw.gamma - neutral.gamma;
+
+    // Keep the control range intentionally small and predictable.
+    yaw = Math.max(-45, Math.min(45, yaw));
+    pitch = Math.max(-35, Math.min(35, pitch));
+    roll = Math.max(-35, Math.min(35, roll));
+
+    // Suppress tiny hand jitter.
+    if (Math.abs(yaw) < 1.0) yaw = 0;
+    if (Math.abs(pitch) < 1.0) pitch = 0;
+    if (Math.abs(roll) < 1.0) roll = 0;
+
+    // Smooth before transmission.
+    smooth.yaw = lowPass(smooth.yaw, yaw, 0.18);
+    smooth.pitch = lowPass(smooth.pitch, pitch, 0.18);
+    smooth.roll = lowPass(smooth.roll, roll, 0.18);
+
+    sendSensor(smooth.yaw, smooth.pitch, smooth.roll);
   }
 
   function startSensors() {
     function activate() {
       sensorActive = true;
-      ui.sensorStatus.textContent = "LIVE";
+      neutral = null;
+      ui.sensorStatus.textContent = "MOVE / CALIBRATE";
       ui.sensorToggle.textContent = "DISABLE PHONE SENSORS";
       window.addEventListener("deviceorientation", onOrientation, true);
       send({ type: "sensor", enabled: true, yaw: 0, pitch: 0, roll: 0 });
@@ -87,6 +144,7 @@
 
   function stopSensors() {
     sensorActive = false;
+    neutral = null;
     window.removeEventListener("deviceorientation", onOrientation, true);
     ui.sensorStatus.textContent = "OFF";
     ui.sensorToggle.textContent = "ENABLE PHONE SENSORS";
@@ -203,6 +261,10 @@
   ui.sensorToggle.addEventListener("click", function () {
     if (sensorActive) stopSensors();
     else startSensors();
+  });
+
+  ui.sensorCalibrate.addEventListener("click", function () {
+    calibrateNeutral();
   });
 
   ui.freeze.addEventListener("click", function () {
