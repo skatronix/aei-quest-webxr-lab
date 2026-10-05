@@ -77,3 +77,24 @@ The BT350 profile keeps:
 8. Confirm BT-350 field reacts with restrained parallax.
 9. Verify freeze/reset still work.
 10. Only then test optional OSC bridge.
+
+
+## Calibration update
+
+Raw Android DeviceOrientation angles were not intuitive enough for live control.
+
+Sensor Field 02 now uses a neutral calibration:
+
+1. Hold the A32 in the intended control posture.
+2. Enable PHONE SENSORS.
+3. Press CALIBRATE / NEUTRAL.
+4. All yaw/pitch/roll output becomes relative to this pose.
+5. Small motion jitter is suppressed and values are low-pass filtered.
+
+Recommended posture for the first test:
+- portrait orientation
+- screen facing the operator
+- phone held approximately upright
+- use only small motions, roughly +/- 20 degrees
+
+The mapping is intentionally a performance controller, not absolute world tracking.
