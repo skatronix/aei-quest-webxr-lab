@@ -8,6 +8,7 @@
     mode: document.getElementById("mode"),
     nodes: document.getElementById("nodes"),
     fps: document.getElementById("fps"),
+    head: document.getElementById("head"),
     net: document.getElementById("net")
   };
 
@@ -17,7 +18,12 @@
     connectionRadius: 0.75,
     movementSpeed: 1,
     color: "cyan",
-    frozen: false
+    frozen: false,
+    sensorEnabled: false,
+    yaw: 0,
+    pitch: 0,
+    roll: 0,
+    opticalPreset: "BT350"
   };
 
   var palette = {
@@ -240,6 +246,15 @@
     updateNetwork(dt, t);
     updateWalker(dt);
 
+    var yawOffset = state.sensorEnabled ? Math.max(-1, Math.min(1, state.yaw / 45)) * width * 0.055 : 0;
+    var pitchOffset = state.sensorEnabled ? Math.max(-1, Math.min(1, state.pitch / 35)) * height * 0.055 : 0;
+    var rollRad = state.sensorEnabled ? Math.max(-18, Math.min(18, state.roll)) * Math.PI / 180 * 0.22 : 0;
+
+    ctx.save();
+    ctx.translate(width * 0.5 + yawOffset, height * 0.5 + pitchOffset);
+    ctx.rotate(rollRad);
+    ctx.translate(-width * 0.5, -height * 0.5);
+
     var mode = state.mode;
 
     if (mode === "NETWORK") {
@@ -251,10 +266,12 @@
       drawWalker(1);
       drawNetwork(t, 0.18);
     } else {
-      drawNetwork(t, 0.62);
+      drawNetwork(t, state.opticalPreset === "BT350" ? 0.72 : 0.62);
       drawOrbitals(t, 0.85);
       drawWalker(0.75);
     }
+
+    ctx.restore();
   }
 
   function applyState(next) {
@@ -264,8 +281,14 @@
     state.movementSpeed = next.movementSpeed;
     state.color = next.color || state.color;
     state.frozen = !!next.frozen;
+    state.sensorEnabled = !!next.sensorEnabled;
+    state.yaw = Number(next.yaw || 0);
+    state.pitch = Number(next.pitch || 0);
+    state.roll = Number(next.roll || 0);
+    state.opticalPreset = next.opticalPreset || "BT350";
 
     hud.mode.textContent = state.mode;
+    hud.head.textContent = state.sensorEnabled ? "SENSOR" : "OFF";
     rebuildNodes();
   }
 
