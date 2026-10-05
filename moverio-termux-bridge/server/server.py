@@ -18,6 +18,11 @@ STATE = {
     "movementSpeed": 1.0,
     "color": "cyan",
     "frozen": False,
+    "sensorEnabled": False,
+    "yaw": 0.0,
+    "pitch": 0.0,
+    "roll": 0.0,
+    "opticalPreset": "BT350",
 }
 
 CLIENTS = set()
@@ -30,6 +35,7 @@ LIMITS = {
 
 MODES = {"NETWORK", "ORBITAL", "GRID", "HYBRID"}
 COLORS = {"cyan", "amber", "magenta", "white"}
+OPTICAL_PRESETS = {"BT350", "GENERIC"}
 
 
 def state_message():
@@ -65,8 +71,27 @@ def apply_value(key, value):
             return True
         return False
 
-    if key == "frozen":
+    if key in {"frozen", "sensorEnabled"}:
         STATE[key] = bool(value)
+        return True
+
+    if key == "opticalPreset":
+        value = str(value).upper()
+        if value in OPTICAL_PRESETS:
+            STATE[key] = value
+            return True
+        return False
+
+    if key in {"yaw", "pitch", "roll"}:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return False
+        if key == "pitch":
+            number = max(-90.0, min(90.0, number))
+        else:
+            number = max(-180.0, min(180.0, number))
+        STATE[key] = round(number, 2)
         return True
 
     if key in LIMITS:
@@ -123,6 +148,16 @@ async def websocket(request):
                 else:
                     await ws.send_json({"type": "error", "message": "invalid_value"})
 
+            elif msg_type == "sensor":
+                changed = False
+                for key in ("yaw", "pitch", "roll"):
+                    if key in data:
+                        changed = apply_value(key, data.get(key)) or changed
+                if "enabled" in data:
+                    changed = apply_value("sensorEnabled", data.get("enabled")) or changed
+                if changed:
+                    await broadcast_state()
+
             elif msg_type == "reset":
                 STATE.update({
                     "mode": "NETWORK",
@@ -131,6 +166,11 @@ async def websocket(request):
                     "movementSpeed": 1.0,
                     "color": "cyan",
                     "frozen": False,
+                    "sensorEnabled": False,
+                    "yaw": 0.0,
+                    "pitch": 0.0,
+                    "roll": 0.0,
+                    "opticalPreset": "BT350",
                 })
                 await broadcast_state()
 
