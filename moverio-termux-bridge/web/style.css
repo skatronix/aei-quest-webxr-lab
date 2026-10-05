@@ -135,3 +135,14 @@ pre {
   color: #dffcff;
   font-weight: normal;
 }
+
+
+.sensor-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.sensor-actions button {
+  font-size: 13px;
+}
