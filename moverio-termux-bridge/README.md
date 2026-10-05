@@ -158,3 +158,44 @@ Do not expose port 8080 to the public internet.
 8. Map OSC values to shared state.
 9. Add authentication / pairing if needed for wider networks.
 10. Only after physical BT-350 testing, add the experiment to the public AEI XR Lab launcher.
+
+
+## Verified hardware milestone
+
+Milestone 0.2 has been verified with:
+- Samsung A32 hotspot + Termux
+- MacBook Pro controller UI
+- Epson Moverio BT-350 browser visualization
+- real-time WebSocket control
+
+## Sensor Field 02
+
+Development branch:
+`moverio-bt350-sensor-field-02`
+
+Adds:
+- explicit A32 DeviceOrientation sensor input
+- yaw/pitch/roll shared state
+- subtle BT-350 parallax response
+- BT-350 optical display preset
+- optional separately-launched OSC input bridge
+
+See `SENSOR-FIELD-02.md`.
+
+### Optional OSC
+
+OSC is intentionally not installed or started by default.
+
+Install only when needed:
+
+```bash
+python -m pip install python-osc
+```
+
+Then, with `server.py` already running:
+
+```bash
+python osc_bridge.py
+```
+
+Default input is UDP 9000 on the trusted local network.
