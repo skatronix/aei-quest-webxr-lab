@@ -102,3 +102,36 @@ pre {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+
+.sensor-panel {
+  margin: 4px 0 20px;
+  padding: 12px;
+  border: 1px solid #28313b;
+  border-radius: 10px;
+  background: #080d12;
+}
+
+.sensor-head,
+.sensor-values {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sensor-head {
+  color: #74f4ff;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.sensor-values {
+  margin-top: 10px;
+  color: #788796;
+  font-size: 11px;
+}
+
+.sensor-values b {
+  color: #dffcff;
+  font-weight: normal;
+}
