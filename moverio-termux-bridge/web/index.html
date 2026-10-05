@@ -53,6 +53,27 @@
         </select>
       </label>
 
+      <label>
+        Optical profile
+        <select id="opticalPreset">
+          <option value="BT350">BT-350 OPTICAL</option>
+          <option value="GENERIC">GENERIC DISPLAY</option>
+        </select>
+      </label>
+
+      <section class="sensor-panel">
+        <div class="sensor-head">
+          <span>PHONE SENSOR FIELD</span>
+          <strong id="sensorStatus">OFF</strong>
+        </div>
+        <button id="sensorToggle" type="button">ENABLE PHONE SENSORS</button>
+        <div class="sensor-values">
+          <span>YAW <b id="yawValue">0.0</b></span>
+          <span>PITCH <b id="pitchValue">0.0</b></span>
+          <span>ROLL <b id="rollValue">0.0</b></span>
+        </div>
+      </section>
+
       <div class="actions">
         <button id="freeze" type="button">FREEZE</button>
         <button id="reset" type="button">RESET</button>
