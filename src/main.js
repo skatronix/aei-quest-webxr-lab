@@ -1,286 +1,318 @@
+
 import * as THREE from 'three';
 import './style.css';
 
 const canvas = document.querySelector('#xr-canvas');
 const supportEl = document.querySelector('#support');
-const vrButton = document.querySelector('#enter-vr');
 const arButton = document.querySelector('#enter-ar');
+const vrButton = document.querySelector('#enter-vr');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x070707);
+scene.background = new THREE.Color(0x030407);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
-camera.position.set(0, 1.6, 2.4);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 50);
+camera.position.set(0, 1.55, 2.0);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x222222, 2.0));
-const key = new THREE.DirectionalLight(0xffffff, 2.2);
-key.position.set(2, 4, 2);
-scene.add(key);
+const stringGroup = new THREE.Group();
+scene.add(stringGroup);
 
-const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(4, 64),
-  new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 })
-);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = 0;
-scene.add(floor);
-
-const cube = new THREE.Mesh(
-  new THREE.BoxGeometry(0.32, 0.32, 0.32),
-  new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.28, metalness: 0.18 })
-);
-cube.position.set(0, 1.45, -0.8);
-scene.add(cube);
-
-// Continuous spatial-control visual: input distance drives this ring.
-const distanceRing = new THREE.Mesh(
-  new THREE.TorusGeometry(0.22, 0.025, 16, 96),
-  new THREE.MeshStandardMaterial({ color: 0xbdbdbd, roughness: 0.4, metalness: 0.2 })
-);
-distanceRing.position.set(0, 1.05, -1.0);
-scene.add(distanceRing);
-
-// World-space diagnostic panel, visible inside XR.
-const hudCanvas = document.createElement('canvas');
-hudCanvas.width = 1024;
-hudCanvas.height = 640;
-const hudCtx = hudCanvas.getContext('2d');
-const hudTexture = new THREE.CanvasTexture(hudCanvas);
-hudTexture.colorSpace = THREE.SRGBColorSpace;
-const hud = new THREE.Mesh(
-  new THREE.PlaneGeometry(1.45, 0.9),
-  new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true })
-);
-hud.position.set(0, 1.7, -1.9);
-scene.add(hud);
-
-const controllerState = [
-  { connected: false, handedness: '—', hand: false },
-  { connected: false, handedness: '—', hand: false },
+const STRINGS = [
+  { y: 1.05, note: 48, color: 0x77f6ff },
+  { y: 1.20, note: 55, color: 0x92eaff },
+  { y: 1.35, note: 60, color: 0xd7f8ff },
+  { y: 1.50, note: 63, color: 0xffb6e6 },
+  { y: 1.65, note: 67, color: 0xff7fd7 },
 ];
 
-const inputs = [];
+const strings = [];
+const a = new THREE.Vector3();
+const b = new THREE.Vector3();
+const closest = new THREE.Vector3();
+const AB = new THREE.Vector3();
+const AP = new THREE.Vector3();
+
+function midiToHz(note) {
+  return 440 * Math.pow(2, (note - 69) / 12);
+}
+
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function pluckAudio(note, velocity) {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  const filter = audioCtx.createBiquadFilter();
+
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(midiToHz(note), now);
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(1500 + velocity * 2500, now);
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.08 + velocity * 0.18, now + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.75);
+
+  osc.connect(filter).connect(gain).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + 0.8);
+}
+
+function createString(spec, index) {
+  const x1 = -0.58;
+  const x2 = 0.58;
+  const z = -0.82 - index * 0.025;
+
+  const positions = new Float32Array([
+    x1, spec.y, z,
+    0, spec.y, z,
+    x2, spec.y, z,
+  ]);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+  const material = new THREE.LineBasicMaterial({
+    color: spec.color,
+    transparent: true,
+    opacity: 0.65,
+  });
+
+  const line = new THREE.Line(geometry, material);
+  stringGroup.add(line);
+
+  const left = new THREE.Mesh(
+    new THREE.SphereGeometry(0.018, 12, 8),
+    new THREE.MeshBasicMaterial({ color: spec.color })
+  );
+  const right = left.clone();
+  left.position.set(x1, spec.y, z);
+  right.position.set(x2, spec.y, z);
+  stringGroup.add(left, right);
+
+  const obj = {
+    ...spec, line, geometry, material,
+    a: new THREE.Vector3(x1, spec.y, z),
+    b: new THREE.Vector3(x2, spec.y, z),
+    energy: 0,
+    phase: 0,
+    lastPluck: -9999,
+    wasNear: [false, false],
+  };
+  strings.push(obj);
+}
+
+STRINGS.forEach(createString);
+
+const inputState = [
+  { connected: false, handedness: 'unknown', hand: false },
+  { connected: false, handedness: 'unknown', hand: false },
+];
+const controllers = [];
 const inputPos = [new THREE.Vector3(), new THREE.Vector3()];
-const cubeWorldPos = new THREE.Vector3();
-const raycaster = new THREE.Raycaster();
-const tempMatrix = new THREE.Matrix4();
-const tempDirection = new THREE.Vector3();
+const prevPos = [new THREE.Vector3(), new THREE.Vector3()];
+const velocity = [new THREE.Vector3(), new THREE.Vector3()];
+const hasPrev = [false, false];
 
-let selectCount = 0;
-let currentMode = 'screen';
-let session = null;
-let lastHudUpdate = 0;
-let grabbedBy = -1;
-let inputDistance = 0;
-const headPos = new THREE.Vector3();
-
-function makeController(index) {
+function makeInput(index) {
   const controller = renderer.xr.getController(index);
-
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.035, 24, 16),
-    new THREE.MeshBasicMaterial({ color: index === 0 ? 0x8fd3ff : 0xff9dc7 })
-  );
-  controller.add(marker);
-
-  const ray = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(0, 0, -1),
-    ]),
-    new THREE.LineBasicMaterial({ color: 0xffffff })
-  );
-  ray.scale.z = 2.0;
-  controller.add(ray);
-
   controller.addEventListener('connected', (event) => {
-    controllerState[index] = {
+    inputState[index] = {
       connected: true,
       handedness: event.data?.handedness || 'unknown',
       hand: Boolean(event.data?.hand),
     };
+    hasPrev[index] = false;
   });
-
   controller.addEventListener('disconnected', () => {
-    controllerState[index] = { connected: false, handedness: '—', hand: false };
+    inputState[index].connected = false;
+    hasPrev[index] = false;
   });
-
-  controller.addEventListener('selectstart', () => {
-    selectCount += 1;
-
-    controller.updateMatrixWorld(true);
-    cube.updateMatrixWorld(true);
-    controller.getWorldPosition(inputPos[index]);
-
-    tempMatrix.identity().extractRotation(controller.matrixWorld);
-    tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
-    raycaster.set(inputPos[index], tempDirection);
-
-    const hit = raycaster.intersectObject(cube, false)[0];
-    if (hit && hit.distance < 2.5 && grabbedBy === -1) {
-      controller.attach(cube);
-      grabbedBy = index;
-    } else if (grabbedBy === -1) {
-      cube.scale.multiplyScalar(1.15);
-    }
-  });
-
-  controller.addEventListener('selectend', () => {
-    if (grabbedBy === index) {
-      scene.attach(cube);
-      grabbedBy = -1;
-    } else if (grabbedBy === -1) {
-      cube.scale.setScalar(1.0);
-    }
-  });
-
   scene.add(controller);
-  inputs.push(controller);
+  controllers.push(controller);
+
+  const hand = renderer.xr.getHand(index);
+  const tip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.012, 12, 8),
+    new THREE.MeshBasicMaterial({ color: index === 0 ? 0x77f6ff : 0xff7fd7 })
+  );
+  tip.name = 'tip-marker';
+  hand.add(tip);
+  scene.add(hand);
 }
 
-makeController(0);
-makeController(1);
+makeInput(0);
+makeInput(1);
 
-function updateSpatialInputs() {
-  let connectedCount = 0;
+let session = null;
+let lastTime = performance.now();
+let pluckCount = 0;
 
-  for (let i = 0; i < inputs.length; i += 1) {
-    if (!controllerState[i].connected) continue;
-    inputs[i].getWorldPosition(inputPos[i]);
-    connectedCount += 1;
-  }
-
-  if (connectedCount === 2) {
-    inputDistance = inputPos[0].distanceTo(inputPos[1]);
-    const mapped = THREE.MathUtils.clamp(inputDistance, 0.15, 1.2);
-    const scale = THREE.MathUtils.mapLinear(mapped, 0.15, 1.2, 0.45, 1.8);
-    distanceRing.scale.setScalar(scale);
-    distanceRing.rotation.z += 0.012;
-  }
-
-  if (grabbedBy === -1) {
-    cube.rotation.x += 0.004;
-    cube.rotation.y += 0.006;
-  }
-
-  cube.getWorldPosition(cubeWorldPos);
+function pointSegmentDistance(p, p0, p1, target) {
+  AB.copy(p1).sub(p0);
+  AP.copy(p).sub(p0);
+  const denom = AB.lengthSq();
+  const t = denom > 0 ? THREE.MathUtils.clamp(AP.dot(AB) / denom, 0, 1) : 0;
+  target.copy(p0).addScaledVector(AB, t);
+  return target.distanceTo(p);
 }
 
-function drawHud(time) {
-  if (time - lastHudUpdate < 100) return;
-  lastHudUpdate = time;
+function getIndexTip(index, frame, out) {
+  if (!session || !frame) return false;
+  const refSpace = renderer.xr.getReferenceSpace();
+  if (!refSpace) return false;
 
-  const xrCamera = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
-  xrCamera.getWorldPosition(headPos);
+  const handedness = inputState[index].handedness;
+  const source = Array.from(session.inputSources).find(
+    (s) => s.hand && s.handedness === handedness
+  );
+  if (!source?.hand) return false;
 
-  let handCount = 0;
-  let controllerCount = 0;
-  if (session) {
-    for (const source of session.inputSources) {
-      if (source.hand) handCount += 1;
-      else controllerCount += 1;
+  const joint = source.hand.get('index-finger-tip');
+  if (!joint) return false;
+
+  const pose = frame.getJointPose(joint, refSpace);
+  if (!pose) return false;
+
+  out.set(
+    pose.transform.position.x,
+    pose.transform.position.y,
+    pose.transform.position.z
+  );
+  return true;
+}
+
+function updateInputs(dt, frame) {
+  for (let i = 0; i < 2; i++) {
+    if (!inputState[i].connected) continue;
+
+    const gotHand = inputState[i].hand && getIndexTip(i, frame, inputPos[i]);
+    if (!gotHand) controllers[i].getWorldPosition(inputPos[i]);
+
+    if (hasPrev[i] && dt > 0.0001) {
+      velocity[i].copy(inputPos[i]).sub(prevPos[i]).multiplyScalar(1 / dt);
+      velocity[i].clampLength(0, 4);
+    } else {
+      velocity[i].set(0,0,0);
+      hasPrev[i] = true;
+    }
+    prevPos[i].copy(inputPos[i]);
+  }
+}
+
+function pluckString(s, handIndex, nowMs, distance) {
+  const speed = velocity[handIndex].length();
+  if (nowMs - s.lastPluck < 120) return;
+  if (speed < 0.12) return;
+
+  s.lastPluck = nowMs;
+  s.energy = Math.min(1.0, 0.25 + speed * 0.45);
+  s.phase = 0;
+  pluckCount += 1;
+  pluckAudio(s.note, Math.min(1, speed / 1.3));
+}
+
+function testPlucks(nowMs) {
+  const HIT_RADIUS = 0.038;
+
+  for (const s of strings) {
+    for (let i = 0; i < 2; i++) {
+      if (!inputState[i].connected) continue;
+      const distance = pointSegmentDistance(inputPos[i], s.a, s.b, closest);
+      const near = distance < HIT_RADIUS;
+
+      if (near && !s.wasNear[i]) {
+        pluckString(s, i, nowMs, distance);
+      }
+      s.wasNear[i] = near;
     }
   }
+}
 
-  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.fillStyle = 'rgba(5,5,5,.88)';
-  hudCtx.fillRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.strokeStyle = 'rgba(255,255,255,.35)';
-  hudCtx.lineWidth = 3;
-  hudCtx.strokeRect(2, 2, hudCanvas.width - 4, hudCanvas.height - 4);
+function animateStrings(dt) {
+  for (const s of strings) {
+    s.energy *= Math.exp(-dt * 4.2);
+    s.phase += dt * 26;
 
-  hudCtx.fillStyle = '#ffffff';
-  hudCtx.font = '700 40px system-ui, sans-serif';
-  hudCtx.fillText('AEI QUEST WEBXR DEMO 01.1', 42, 64);
+    const pos = s.geometry.attributes.position.array;
+    const wobble = Math.sin(s.phase) * 0.045 * s.energy;
+    pos[4] = s.y + wobble;
+    s.geometry.attributes.position.needsUpdate = true;
 
-  hudCtx.font = '25px ui-monospace, monospace';
-  const fmt = (v) => `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.z.toFixed(2)}`;
-  const lines = [
-    `mode: ${currentMode}`,
-    `XR session: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen preview'}`,
-    `head xyz: ${fmt(headPos)}`,
-    `controllers: ${controllerCount}   hands: ${handCount}`,
-    `input 0 ${controllerState[0].handedness}: ${fmt(inputPos[0])}`,
-    `input 1 ${controllerState[1].handedness}: ${fmt(inputPos[1])}`,
-    `input distance: ${inputDistance.toFixed(3)} m`,
-    `cube xyz: ${fmt(cubeWorldPos)}   grabbed: ${grabbedBy >= 0 ? grabbedBy : 'no'}`,
-    `select / pinch events: ${selectCount}`,
-  ];
-
-  lines.forEach((line, i) => hudCtx.fillText(line, 42, 118 + i * 48));
-  hudTexture.needsUpdate = true;
+    s.material.opacity = 0.42 + s.energy * 0.58;
+  }
 }
 
 async function startXR(mode) {
   if (!navigator.xr || session) return;
 
-  const isAR = mode === 'immersive-ar';
-  const init = {
-    requiredFeatures: ['local-floor'],
-    optionalFeatures: ['bounded-floor', 'hand-tracking'],
-  };
-
   try {
-    session = await navigator.xr.requestSession(mode, init);
-    currentMode = isAR ? 'MR / AR' : 'VR';
+    ensureAudio();
+    session = await navigator.xr.requestSession(mode, {
+      requiredFeatures: ['local-floor'],
+      optionalFeatures: ['hand-tracking', 'bounded-floor'],
+    });
+
     document.body.classList.add('xr-active');
-    scene.background = isAR ? null : new THREE.Color(0x070707);
-    floor.visible = !isAR;
+    scene.background = mode === 'immersive-ar' ? null : new THREE.Color(0x030407);
     await renderer.xr.setSession(session);
 
     session.addEventListener('end', () => {
-      if (grabbedBy >= 0) {
-        scene.attach(cube);
-        grabbedBy = -1;
-      }
       session = null;
-      currentMode = 'screen';
       document.body.classList.remove('xr-active');
-      scene.background = new THREE.Color(0x070707);
-      floor.visible = true;
+      scene.background = new THREE.Color(0x030407);
+      hasPrev[0] = false;
+      hasPrev[1] = false;
     }, { once: true });
-  } catch (error) {
-    console.error(error);
-    supportEl.textContent = `Could not start ${mode}: ${error.message}`;
+  } catch (err) {
+    supportEl.textContent = `Could not start ${mode}: ${err.message}`;
   }
 }
 
-vrButton.addEventListener('click', () => startXR('immersive-vr'));
 arButton.addEventListener('click', () => startXR('immersive-ar'));
+vrButton.addEventListener('click', () => startXR('immersive-vr'));
 
 async function detectSupport() {
   if (!navigator.xr) {
-    supportEl.textContent = 'WebXR API not available in this browser/context. Use HTTPS in Quest Browser.';
+    supportEl.textContent = 'WebXR unavailable. Quest Browser + HTTPS required.';
     return;
   }
 
-  const [vr, ar] = await Promise.all([
-    navigator.xr.isSessionSupported('immersive-vr').catch(() => false),
+  const [ar, vr] = await Promise.all([
     navigator.xr.isSessionSupported('immersive-ar').catch(() => false),
+    navigator.xr.isSessionSupported('immersive-vr').catch(() => false),
   ]);
 
-  vrButton.disabled = !vr;
   arButton.disabled = !ar;
-  supportEl.textContent = `WebXR: VR ${vr ? 'YES' : 'NO'} / MR-AR ${ar ? 'YES' : 'NO'}`;
+  vrButton.disabled = !vr;
+  supportEl.textContent = `WebXR: MR/AR ${ar ? 'YES' : 'NO'} · VR ${vr ? 'YES' : 'NO'}`;
 }
 
-renderer.setAnimationLoop((time) => {
-  updateSpatialInputs();
-  cube.position.y += Math.sin(time * 0.0012) * 0.00015;
-  drawHud(time);
+renderer.setAnimationLoop((time, frame) => {
+  const dt = Math.min(0.05, Math.max(0.001, (time - lastTime) / 1000));
+  lastTime = time;
+
+  updateInputs(dt, frame);
+  testPlucks(time);
+  animateStrings(dt);
+
   renderer.render(scene, camera);
 });
 
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(innerWidth, innerHeight);
 });
 
 detectSupport();
