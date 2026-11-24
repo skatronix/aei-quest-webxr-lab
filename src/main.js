@@ -105,6 +105,7 @@ function createString(spec, index) {
     a: new THREE.Vector3(x1, spec.y, z),
     b: new THREE.Vector3(x2, spec.y, z),
     energy: 0,
+    hover: 0,
     phase: 0,
     lastPluck: -9999,
     wasNear: [false, false],
@@ -215,14 +216,19 @@ function updateInputs(dt, frame) {
 
 function pluckString(s, handIndex, nowMs, distance) {
   const speed = velocity[handIndex].length();
-  if (nowMs - s.lastPluck < 120) return;
-  if (speed < 0.12) return;
+
+  if (nowMs - s.lastPluck < 95) return;
+  if (speed < 0.075) return;
+
+  const normalized = THREE.MathUtils.clamp((speed - 0.075) / 1.15, 0, 1);
 
   s.lastPluck = nowMs;
-  s.energy = Math.min(1.0, 0.25 + speed * 0.45);
+  s.energy = Math.min(1.0, 0.32 + normalized * 0.68);
+  s.hover = 1.0;
   s.phase = 0;
   pluckCount += 1;
-  pluckAudio(s.note, Math.min(1, speed / 1.3));
+
+  pluckAudio(s.note, 0.18 + normalized * 0.82);
 }
 
 function sweptPointSegmentHit(from, to, s, radius) {
@@ -242,13 +248,22 @@ function sweptPointSegmentHit(from, to, s, radius) {
 }
 
 function testPlucks(nowMs) {
-  const HIT_RADIUS = 0.042;
+  const HIT_RADIUS = 0.048;
+  const HOVER_RADIUS = 0.085;
 
   for (const s of strings) {
+    let hoverStrength = 0;
+
     for (let i = 0; i < 2; i++) {
       if (!inputState[i].connected) continue;
 
       const currentDistance = pointSegmentDistance(inputPos[i], s.a, s.b, closest);
+
+      if (currentDistance < HOVER_RADIUS) {
+        const h = 1 - currentDistance / HOVER_RADIUS;
+        hoverStrength = Math.max(hoverStrength, h);
+      }
+
       const nearNow = currentDistance < HIT_RADIUS;
 
       const sweep = sweptPointSegmentHit(
@@ -264,20 +279,27 @@ function testPlucks(nowMs) {
 
       s.wasNear[i] = nearNow;
     }
+
+    s.hover = Math.max(s.hover, hoverStrength);
   }
 }
 
 function animateStrings(dt) {
   for (const s of strings) {
     s.energy *= Math.exp(-dt * 4.2);
+    s.hover *= Math.exp(-dt * 10.0);
     s.phase += dt * 26;
 
     const pos = s.geometry.attributes.position.array;
-    const wobble = Math.sin(s.phase) * 0.045 * s.energy;
+    const wobble = Math.sin(s.phase) * (0.035 + s.energy * 0.025) * s.energy;
     pos[4] = s.y + wobble;
     s.geometry.attributes.position.needsUpdate = true;
 
-    s.material.opacity = 0.42 + s.energy * 0.58;
+    s.material.opacity = THREE.MathUtils.clamp(
+      0.38 + s.hover * 0.22 + s.energy * 0.55,
+      0.38,
+      1.0
+    );
   }
 }
 
