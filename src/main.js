@@ -3,100 +3,200 @@ import './style.css';
 
 const canvas = document.querySelector('#xr-canvas');
 const supportEl = document.querySelector('#support');
-const vrButton = document.querySelector('#enter-vr');
 const arButton = document.querySelector('#enter-ar');
+const vrButton = document.querySelector('#enter-vr');
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  alpha: true,
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x070707);
+scene.background = new THREE.Color(0x030507);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
-camera.position.set(0, 1.6, 2.4);
-
-scene.add(new THREE.HemisphereLight(0xffffff, 0x222222, 2.0));
-const key = new THREE.DirectionalLight(0xffffff, 2.2);
-key.position.set(2, 4, 2);
-scene.add(key);
-
-const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(4, 64),
-  new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 })
+const camera = new THREE.PerspectiveCamera(
+  70,
+  window.innerWidth / window.innerHeight,
+  0.01,
+  50
 );
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = 0;
-scene.add(floor);
+camera.position.set(0, 1.6, 2);
 
-const cube = new THREE.Mesh(
-  new THREE.BoxGeometry(0.32, 0.32, 0.32),
-  new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.28, metalness: 0.18 })
-);
-cube.position.set(0, 1.45, -0.8);
-scene.add(cube);
+// -----------------------------------------------------------------------------
+// Spatial surface data
+// -----------------------------------------------------------------------------
 
-// Continuous spatial-control visual: input distance drives this ring.
-const distanceRing = new THREE.Mesh(
-  new THREE.TorusGeometry(0.22, 0.025, 16, 96),
-  new THREE.MeshStandardMaterial({ color: 0xbdbdbd, roughness: 0.4, metalness: 0.2 })
-);
-distanceRing.position.set(0, 1.05, -1.0);
-scene.add(distanceRing);
+const points = [];
+const pointMarkers = [];
 
-// World-space diagnostic panel, visible inside XR.
-const hudCanvas = document.createElement('canvas');
-hudCanvas.width = 1024;
-hudCanvas.height = 640;
-const hudCtx = hudCanvas.getContext('2d');
-const hudTexture = new THREE.CanvasTexture(hudCanvas);
-hudTexture.colorSpace = THREE.SRGBColorSpace;
-const hud = new THREE.Mesh(
-  new THREE.PlaneGeometry(1.45, 0.9),
-  new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true })
+const surfaceMaterial = new THREE.MeshBasicMaterial({
+  color: 0x39e7ff,
+  transparent: true,
+  opacity: 0.22,
+  side: THREE.DoubleSide,
+  depthWrite: false,
+});
+
+const surfaceGeometry = new THREE.BufferGeometry();
+const surfaceMesh = new THREE.Mesh(surfaceGeometry, surfaceMaterial);
+surfaceMesh.visible = false;
+scene.add(surfaceMesh);
+
+const outlineGeometry = new THREE.BufferGeometry();
+const outline = new THREE.LineLoop(
+  outlineGeometry,
+  new THREE.LineBasicMaterial({
+    color: 0x8ff7ff,
+    transparent: true,
+    opacity: 0.95,
+  })
 );
-hud.position.set(0, 1.7, -1.9);
-scene.add(hud);
+outline.visible = false;
+scene.add(outline);
+
+function makeMarker(position, index) {
+  const colors = [0x00ffff, 0x70ff9b, 0xffe75c, 0xff70d7];
+
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.025, 16, 12),
+    new THREE.MeshBasicMaterial({ color: colors[index] })
+  );
+
+  marker.position.copy(position);
+  scene.add(marker);
+  pointMarkers.push(marker);
+}
+
+function rebuildSurface() {
+  outline.visible = points.length >= 2;
+
+  if (points.length >= 2) {
+    const outlinePoints = points.map((p) => p.clone());
+    outlineGeometry.setFromPoints(outlinePoints);
+  }
+
+  if (points.length !== 4) {
+    surfaceMesh.visible = false;
+    return;
+  }
+
+  const vertices = new Float32Array([
+    points[0].x, points[0].y, points[0].z,
+    points[1].x, points[1].y, points[1].z,
+    points[2].x, points[2].y, points[2].z,
+
+    points[0].x, points[0].y, points[0].z,
+    points[2].x, points[2].y, points[2].z,
+    points[3].x, points[3].y, points[3].z,
+  ]);
+
+  surfaceGeometry.setAttribute(
+    'position',
+    new THREE.BufferAttribute(vertices, 3)
+  );
+  surfaceGeometry.computeVertexNormals();
+
+  surfaceMesh.visible = true;
+
+  console.log('AEI Spatial Mapper surface:', {
+    p1: points[0].toArray(),
+    p2: points[1].toArray(),
+    p3: points[2].toArray(),
+    p4: points[3].toArray(),
+  });
+}
+
+function resetSurface() {
+  points.length = 0;
+
+  for (const marker of pointMarkers) {
+    scene.remove(marker);
+    marker.geometry.dispose();
+    marker.material.dispose();
+  }
+
+  pointMarkers.length = 0;
+  surfaceMesh.visible = false;
+  outline.visible = false;
+
+  console.log('AEI Spatial Mapper: reset');
+}
+
+// -----------------------------------------------------------------------------
+// XR input
+// -----------------------------------------------------------------------------
 
 const controllerState = [
-  { connected: false, handedness: '—', hand: false },
-  { connected: false, handedness: '—', hand: false },
+  { connected: false, handedness: 'unknown', hand: false },
+  { connected: false, handedness: 'unknown', hand: false },
 ];
 
-const inputs = [];
-const inputPos = [new THREE.Vector3(), new THREE.Vector3()];
-const cubeWorldPos = new THREE.Vector3();
-const raycaster = new THREE.Raycaster();
-const tempMatrix = new THREE.Matrix4();
-const tempDirection = new THREE.Vector3();
+const controllers = [];
+const handTips = [new THREE.Vector3(), new THREE.Vector3()];
+const handTipValid = [false, false];
 
-let selectCount = 0;
-let currentMode = 'screen';
-let session = null;
-let lastHudUpdate = 0;
-let grabbedBy = -1;
-let inputDistance = 0;
-const headPos = new THREE.Vector3();
+const tempPos = new THREE.Vector3();
+const tempDir = new THREE.Vector3();
+const tempMatrix = new THREE.Matrix4();
+
+function placePoint(index) {
+  // Fifth point starts a fresh surface automatically.
+  if (points.length >= 4) {
+    resetSurface();
+  }
+
+  const p = new THREE.Vector3();
+
+  if (controllerState[index].hand && handTipValid[index]) {
+    // Hand tracking: place exactly at index fingertip.
+    p.copy(handTips[index]);
+  } else {
+    // Touch controller: place 75 cm along controller aim ray.
+    const controller = controllers[index];
+    controller.updateMatrixWorld(true);
+    controller.getWorldPosition(tempPos);
+
+    tempMatrix.identity().extractRotation(controller.matrixWorld);
+    tempDir
+      .set(0, 0, -1)
+      .applyMatrix4(tempMatrix)
+      .normalize();
+
+    p.copy(tempPos).addScaledVector(tempDir, 0.75);
+  }
+
+  points.push(p.clone());
+  makeMarker(p, points.length - 1);
+  rebuildSurface();
+
+  console.log(
+    `AEI Spatial Mapper point ${points.length}:`,
+    p.x.toFixed(4),
+    p.y.toFixed(4),
+    p.z.toFixed(4)
+  );
+}
 
 function makeController(index) {
   const controller = renderer.xr.getController(index);
-
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.035, 24, 16),
-    new THREE.MeshBasicMaterial({ color: index === 0 ? 0x8fd3ff : 0xff9dc7 })
-  );
-  controller.add(marker);
 
   const ray = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, 0, -1),
     ]),
-    new THREE.LineBasicMaterial({ color: 0xffffff })
+    new THREE.LineBasicMaterial({
+      color: index === 0 ? 0x75eaff : 0xff75d8,
+      transparent: true,
+      opacity: 0.65,
+    })
   );
-  ray.scale.z = 2.0;
+  ray.scale.z = 0.75;
   controller.add(ray);
 
   controller.addEventListener('connected', (event) => {
@@ -105,182 +205,180 @@ function makeController(index) {
       handedness: event.data?.handedness || 'unknown',
       hand: Boolean(event.data?.hand),
     };
+
+    ray.visible = !controllerState[index].hand;
   });
 
   controller.addEventListener('disconnected', () => {
-    controllerState[index] = { connected: false, handedness: '—', hand: false };
+    controllerState[index] = {
+      connected: false,
+      handedness: 'unknown',
+      hand: false,
+    };
+    handTipValid[index] = false;
   });
 
+  // Touch trigger OR hand pinch.
   controller.addEventListener('selectstart', () => {
-    selectCount += 1;
-
-    controller.updateMatrixWorld(true);
-    cube.updateMatrixWorld(true);
-    controller.getWorldPosition(inputPos[index]);
-
-    tempMatrix.identity().extractRotation(controller.matrixWorld);
-    tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
-    raycaster.set(inputPos[index], tempDirection);
-
-    const hit = raycaster.intersectObject(cube, false)[0];
-    if (hit && hit.distance < 2.5 && grabbedBy === -1) {
-      controller.attach(cube);
-      grabbedBy = index;
-    } else if (grabbedBy === -1) {
-      cube.scale.multiplyScalar(1.15);
-    }
+    placePoint(index);
   });
 
-  controller.addEventListener('selectend', () => {
-    if (grabbedBy === index) {
-      scene.attach(cube);
-      grabbedBy = -1;
-    } else if (grabbedBy === -1) {
-      cube.scale.setScalar(1.0);
-    }
+  // Touch grip / squeeze resets the surface.
+  controller.addEventListener('squeezestart', () => {
+    resetSurface();
   });
 
   scene.add(controller);
-  inputs.push(controller);
+  controllers.push(controller);
 }
 
 makeController(0);
 makeController(1);
 
-function updateSpatialInputs() {
-  let connectedCount = 0;
+// Fingertip cursors
+const cursors = [0, 1].map((i) => {
+  const cursor = new THREE.Mesh(
+    new THREE.SphereGeometry(0.014, 12, 8),
+    new THREE.MeshBasicMaterial({
+      color: i === 0 ? 0x75eaff : 0xff75d8,
+    })
+  );
 
-  for (let i = 0; i < inputs.length; i += 1) {
-    if (!controllerState[i].connected) continue;
-    inputs[i].getWorldPosition(inputPos[i]);
-    connectedCount += 1;
+  cursor.visible = false;
+  scene.add(cursor);
+  return cursor;
+});
+
+let session = null;
+
+function updateHandTips(frame) {
+  handTipValid[0] = false;
+  handTipValid[1] = false;
+  cursors[0].visible = false;
+  cursors[1].visible = false;
+
+  if (!session || !frame) return;
+
+  const refSpace = renderer.xr.getReferenceSpace();
+  if (!refSpace) return;
+
+  for (let i = 0; i < 2; i++) {
+    const state = controllerState[i];
+
+    if (!state.connected || !state.hand) continue;
+
+    const source = Array.from(session.inputSources).find(
+      (s) => s.hand && s.handedness === state.handedness
+    );
+
+    const joint = source?.hand?.get('index-finger-tip');
+    if (!joint) continue;
+
+    const pose = frame.getJointPose(joint, refSpace);
+    if (!pose) continue;
+
+    handTips[i].set(
+      pose.transform.position.x,
+      pose.transform.position.y,
+      pose.transform.position.z
+    );
+
+    handTipValid[i] = true;
+    cursors[i].position.copy(handTips[i]);
+    cursors[i].visible = true;
   }
-
-  if (connectedCount === 2) {
-    inputDistance = inputPos[0].distanceTo(inputPos[1]);
-    const mapped = THREE.MathUtils.clamp(inputDistance, 0.15, 1.2);
-    const scale = THREE.MathUtils.mapLinear(mapped, 0.15, 1.2, 0.45, 1.8);
-    distanceRing.scale.setScalar(scale);
-    distanceRing.rotation.z += 0.012;
-  }
-
-  if (grabbedBy === -1) {
-    cube.rotation.x += 0.004;
-    cube.rotation.y += 0.006;
-  }
-
-  cube.getWorldPosition(cubeWorldPos);
 }
 
-function drawHud(time) {
-  if (time - lastHudUpdate < 100) return;
-  lastHudUpdate = time;
-
-  const xrCamera = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
-  xrCamera.getWorldPosition(headPos);
-
-  let handCount = 0;
-  let controllerCount = 0;
-  if (session) {
-    for (const source of session.inputSources) {
-      if (source.hand) handCount += 1;
-      else controllerCount += 1;
-    }
-  }
-
-  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.fillStyle = 'rgba(5,5,5,.88)';
-  hudCtx.fillRect(0, 0, hudCanvas.width, hudCanvas.height);
-  hudCtx.strokeStyle = 'rgba(255,255,255,.35)';
-  hudCtx.lineWidth = 3;
-  hudCtx.strokeRect(2, 2, hudCanvas.width - 4, hudCanvas.height - 4);
-
-  hudCtx.fillStyle = '#ffffff';
-  hudCtx.font = '700 40px system-ui, sans-serif';
-  hudCtx.fillText('AEI QUEST WEBXR DEMO 01.1', 42, 64);
-
-  hudCtx.font = '25px ui-monospace, monospace';
-  const fmt = (v) => `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.z.toFixed(2)}`;
-  const lines = [
-    `mode: ${currentMode}`,
-    `XR session: ${renderer.xr.isPresenting ? 'ACTIVE' : 'screen preview'}`,
-    `head xyz: ${fmt(headPos)}`,
-    `controllers: ${controllerCount}   hands: ${handCount}`,
-    `input 0 ${controllerState[0].handedness}: ${fmt(inputPos[0])}`,
-    `input 1 ${controllerState[1].handedness}: ${fmt(inputPos[1])}`,
-    `input distance: ${inputDistance.toFixed(3)} m`,
-    `cube xyz: ${fmt(cubeWorldPos)}   grabbed: ${grabbedBy >= 0 ? grabbedBy : 'no'}`,
-    `select / pinch events: ${selectCount}`,
-  ];
-
-  lines.forEach((line, i) => hudCtx.fillText(line, 42, 118 + i * 48));
-  hudTexture.needsUpdate = true;
-}
+// -----------------------------------------------------------------------------
+// XR
+// -----------------------------------------------------------------------------
 
 async function startXR(mode) {
   if (!navigator.xr || session) return;
 
-  const isAR = mode === 'immersive-ar';
-  const init = {
-    requiredFeatures: ['local-floor'],
-    optionalFeatures: ['bounded-floor', 'hand-tracking'],
-  };
-
   try {
-    session = await navigator.xr.requestSession(mode, init);
-    currentMode = isAR ? 'MR / AR' : 'VR';
+    session = await navigator.xr.requestSession(mode, {
+      requiredFeatures: ['local-floor'],
+      optionalFeatures: [
+        'hand-tracking',
+        'bounded-floor',
+      ],
+    });
+
     document.body.classList.add('xr-active');
-    scene.background = isAR ? null : new THREE.Color(0x070707);
-    floor.visible = !isAR;
+
+    scene.background =
+      mode === 'immersive-ar'
+        ? null
+        : new THREE.Color(0x030507);
+
     await renderer.xr.setSession(session);
 
-    session.addEventListener('end', () => {
-      if (grabbedBy >= 0) {
-        scene.attach(cube);
-        grabbedBy = -1;
-      }
-      session = null;
-      currentMode = 'screen';
-      document.body.classList.remove('xr-active');
-      scene.background = new THREE.Color(0x070707);
-      floor.visible = true;
-    }, { once: true });
-  } catch (error) {
-    console.error(error);
-    supportEl.textContent = `Could not start ${mode}: ${error.message}`;
+    session.addEventListener(
+      'end',
+      () => {
+        session = null;
+        document.body.classList.remove('xr-active');
+        scene.background = new THREE.Color(0x030507);
+      },
+      { once: true }
+    );
+  } catch (err) {
+    console.error(err);
+    supportEl.textContent = `Could not start ${mode}: ${err.message}`;
   }
 }
 
-vrButton.addEventListener('click', () => startXR('immersive-vr'));
 arButton.addEventListener('click', () => startXR('immersive-ar'));
+vrButton.addEventListener('click', () => startXR('immersive-vr'));
 
 async function detectSupport() {
   if (!navigator.xr) {
-    supportEl.textContent = 'WebXR API not available in this browser/context. Use HTTPS in Quest Browser.';
+    supportEl.textContent =
+      'WebXR unavailable. Quest Browser + HTTPS required.';
     return;
   }
 
-  const [vr, ar] = await Promise.all([
-    navigator.xr.isSessionSupported('immersive-vr').catch(() => false),
-    navigator.xr.isSessionSupported('immersive-ar').catch(() => false),
+  const [ar, vr] = await Promise.all([
+    navigator.xr
+      .isSessionSupported('immersive-ar')
+      .catch(() => false),
+
+    navigator.xr
+      .isSessionSupported('immersive-vr')
+      .catch(() => false),
   ]);
 
-  vrButton.disabled = !vr;
   arButton.disabled = !ar;
-  supportEl.textContent = `WebXR: VR ${vr ? 'YES' : 'NO'} / MR-AR ${ar ? 'YES' : 'NO'}`;
+  vrButton.disabled = !vr;
+
+  supportEl.textContent =
+    `WebXR: MR/AR ${ar ? 'YES' : 'NO'} · VR ${vr ? 'YES' : 'NO'}`;
 }
 
-renderer.setAnimationLoop((time) => {
-  updateSpatialInputs();
-  cube.position.y += Math.sin(time * 0.0012) * 0.00015;
-  drawHud(time);
+renderer.setAnimationLoop((time, frame) => {
+  updateHandTips(frame);
+
+  // Slight pulse for placed corner points.
+  for (let i = 0; i < pointMarkers.length; i++) {
+    const scale =
+      1 + Math.sin(time * 0.004 + i) * 0.12;
+    pointMarkers[i].scale.setScalar(scale);
+  }
+
   renderer.render(scene, camera);
 });
 
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.aspect =
+    window.innerWidth / window.innerHeight;
+
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  renderer.setSize(
+    window.innerWidth,
+    window.innerHeight
+  );
 });
 
 detectSupport();
