@@ -78,7 +78,7 @@ jobs:
           build_branch orbital-node-test-01.1-input-fix orbital-node-01-1
           build_branch orbital-sphere-network-01 orbital-sphere-network
           build_branch resolume-test-02-spectator-output resolume-spectator
-          build_branch air-harp-spatial-01.1-input-fix air-harp
+          build_branch air-harp-spatial-01.2-feel-tuning air-harp
 
           echo "Published paths:"
           find "$SITE" -maxdepth 2 -type f -name index.html -print | sort
