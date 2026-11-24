@@ -221,14 +221,15 @@ function pluckString(s, handIndex, nowMs, distance) {
   if (speed < 0.075) return;
 
   const normalized = THREE.MathUtils.clamp((speed - 0.075) / 1.15, 0, 1);
+  const expressive = normalized * normalized;
 
   s.lastPluck = nowMs;
-  s.energy = Math.min(1.0, 0.32 + normalized * 0.68);
+  s.energy = Math.min(1.0, 0.22 + expressive * 0.98);
   s.hover = 1.0;
   s.phase = 0;
   pluckCount += 1;
 
-  pluckAudio(s.note, 0.18 + normalized * 0.82);
+  pluckAudio(s.note, 0.10 + expressive * 0.90);
 }
 
 function sweptPointSegmentHit(from, to, s, radius) {
@@ -287,17 +288,17 @@ function testPlucks(nowMs) {
 function animateStrings(dt) {
   for (const s of strings) {
     s.energy *= Math.exp(-dt * 4.2);
-    s.hover *= Math.exp(-dt * 10.0);
+    s.hover *= Math.exp(-dt * 6.0);
     s.phase += dt * 26;
 
     const pos = s.geometry.attributes.position.array;
-    const wobble = Math.sin(s.phase) * (0.035 + s.energy * 0.025) * s.energy;
+    const wobble = Math.sin(s.phase) * (0.028 + s.energy * 0.050) * s.energy;
     pos[4] = s.y + wobble;
     s.geometry.attributes.position.needsUpdate = true;
 
     s.material.opacity = THREE.MathUtils.clamp(
-      0.38 + s.hover * 0.22 + s.energy * 0.55,
-      0.38,
+      0.30 + s.hover * 0.48 + s.energy * 0.65,
+      0.30,
       1.0
     );
   }
