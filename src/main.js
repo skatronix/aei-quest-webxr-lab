@@ -121,6 +121,7 @@ const inputState = [
 const controllers = [];
 const inputPos = [new THREE.Vector3(), new THREE.Vector3()];
 const prevPos = [new THREE.Vector3(), new THREE.Vector3()];
+const motionFrom = [new THREE.Vector3(), new THREE.Vector3()];
 const velocity = [new THREE.Vector3(), new THREE.Vector3()];
 const hasPrev = [false, false];
 
@@ -200,9 +201,11 @@ function updateInputs(dt, frame) {
     if (!gotHand) controllers[i].getWorldPosition(inputPos[i]);
 
     if (hasPrev[i] && dt > 0.0001) {
+      motionFrom[i].copy(prevPos[i]);
       velocity[i].copy(inputPos[i]).sub(prevPos[i]).multiplyScalar(1 / dt);
       velocity[i].clampLength(0, 4);
     } else {
+      motionFrom[i].copy(inputPos[i]);
       velocity[i].set(0,0,0);
       hasPrev[i] = true;
     }
@@ -222,19 +225,44 @@ function pluckString(s, handIndex, nowMs, distance) {
   pluckAudio(s.note, Math.min(1, speed / 1.3));
 }
 
+function sweptPointSegmentHit(from, to, s, radius) {
+  const travel = from.distanceTo(to);
+  const steps = THREE.MathUtils.clamp(Math.ceil(travel / 0.012), 1, 24);
+  let minDistance = Infinity;
+
+  for (let step = 0; step <= steps; step++) {
+    const t = step / steps;
+    const p = new THREE.Vector3().lerpVectors(from, to, t);
+    const d = pointSegmentDistance(p, s.a, s.b, closest);
+    if (d < minDistance) minDistance = d;
+    if (d < radius) return { hit: true, distance: d };
+  }
+
+  return { hit: false, distance: minDistance };
+}
+
 function testPlucks(nowMs) {
-  const HIT_RADIUS = 0.038;
+  const HIT_RADIUS = 0.042;
 
   for (const s of strings) {
     for (let i = 0; i < 2; i++) {
       if (!inputState[i].connected) continue;
-      const distance = pointSegmentDistance(inputPos[i], s.a, s.b, closest);
-      const near = distance < HIT_RADIUS;
 
-      if (near && !s.wasNear[i]) {
-        pluckString(s, i, nowMs, distance);
+      const currentDistance = pointSegmentDistance(inputPos[i], s.a, s.b, closest);
+      const nearNow = currentDistance < HIT_RADIUS;
+
+      const sweep = sweptPointSegmentHit(
+        motionFrom[i],
+        inputPos[i],
+        s,
+        HIT_RADIUS
+      );
+
+      if (sweep.hit && !s.wasNear[i]) {
+        pluckString(s, i, nowMs, sweep.distance);
       }
-      s.wasNear[i] = near;
+
+      s.wasNear[i] = nearNow;
     }
   }
 }
